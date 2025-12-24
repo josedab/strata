@@ -1,0 +1,23 @@
+/target
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+
+# Data directories (for local development)
+/data/
+/var/
+
+# Logs
+*.log
