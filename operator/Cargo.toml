@@ -1,0 +1,45 @@
+[package]
+name = "strata-operator"
+version = "0.1.0"
+edition = "2021"
+description = "Kubernetes Operator for Strata distributed filesystem"
+license = "Apache-2.0"
+
+[dependencies]
+# Kubernetes
+kube = { version = "0.87", features = ["runtime", "client", "derive"] }
+k8s-openapi = { version = "0.20", features = ["v1_28"] }
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+futures = "0.3"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
+
+# Error handling
+thiserror = "2.0"
+anyhow = "1.0"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# Metrics
+prometheus = "0.13"
+lazy_static = "1.4"
+
+# Schema generation
+schemars = "0.8"
+
+# Time
+chrono = "0.4"
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+[[bin]]
+name = "strata-operator"
+path = "src/main.rs"
