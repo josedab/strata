@@ -30,6 +30,7 @@ const RAFT_RPC_CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 const RAFT_RPC_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Metadata server state.
+#[allow(dead_code)]
 pub struct MetadataServer {
     node_id: NodeId,
     command_tx: mpsc::Sender<RaftCommand>,

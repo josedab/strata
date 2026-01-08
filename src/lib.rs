@@ -181,9 +181,10 @@ pub async fn run(config: StrataConfig) -> Result<()> {
         info!("Starting S3 gateway on {}", config.s3.bind_addr);
         let s3_config = config.s3.clone();
         let metadata_addr = config.metadata.bind_addr;
+        let data_addr = config.data.bind_addr;
 
         let handle = tokio::spawn(async move {
-            if let Err(e) = s3::run_s3_gateway(s3_config, metadata_addr).await {
+            if let Err(e) = s3::run_s3_gateway(s3_config, metadata_addr, data_addr).await {
                 error!("S3 gateway error: {}", e);
             }
         });

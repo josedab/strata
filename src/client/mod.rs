@@ -243,6 +243,248 @@ impl MetadataClient {
 
         Ok(result.inode)
     }
+
+    /// Add a chunk to an inode.
+    pub async fn add_chunk(&self, inode: InodeId, chunk_id: ChunkId) -> Result<()> {
+        let url = format!("{}/metadata/add_chunk", self.base_url);
+        let request = AddChunkRequest { inode, chunk_id };
+
+        let response = self
+            .client
+            .post(&url)
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| StrataError::Network(e.to_string()))?;
+
+        if response.status().is_success() {
+            Ok(())
+        } else {
+            Err(StrataError::Internal("Failed to add chunk".into()))
+        }
+    }
+
+    /// Set the size of a file.
+    pub async fn set_size(&self, inode: InodeId, size: u64) -> Result<()> {
+        let url = format!("{}/metadata/set_size", self.base_url);
+        let request = SetSizeRequest { inode, size };
+
+        let response = self
+            .client
+            .post(&url)
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| StrataError::Network(e.to_string()))?;
+
+        if response.status().is_success() {
+            Ok(())
+        } else {
+            Err(StrataError::Internal("Failed to set size".into()))
+        }
+    }
+
+    // Multipart upload operations
+
+    /// Initiate a multipart upload.
+    pub async fn initiate_multipart_upload(
+        &self,
+        bucket_inode: InodeId,
+        key: &str,
+        upload_id: &str,
+    ) -> Result<()> {
+        let url = format!("{}/metadata/multipart/initiate", self.base_url);
+        let request = InitiateMultipartRequest {
+            bucket_inode,
+            key: key.to_string(),
+            upload_id: upload_id.to_string(),
+        };
+
+        let response = self
+            .client
+            .post(&url)
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| StrataError::Network(e.to_string()))?;
+
+        if response.status().is_success() {
+            Ok(())
+        } else {
+            let error: ErrorResponse = response
+                .json()
+                .await
+                .unwrap_or_else(|_| ErrorResponse {
+                    error: "Unknown error".to_string(),
+                });
+            Err(StrataError::Internal(error.error))
+        }
+    }
+
+    /// Upload a part of a multipart upload.
+    pub async fn upload_part(
+        &self,
+        upload_id: &str,
+        part_number: u32,
+        chunk_id: ChunkId,
+        size: u64,
+        etag: &str,
+    ) -> Result<()> {
+        let url = format!("{}/metadata/multipart/upload_part", self.base_url);
+        let request = UploadPartRequest {
+            upload_id: upload_id.to_string(),
+            part_number,
+            chunk_id,
+            size,
+            etag: etag.to_string(),
+        };
+
+        let response = self
+            .client
+            .post(&url)
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| StrataError::Network(e.to_string()))?;
+
+        if response.status().is_success() {
+            Ok(())
+        } else {
+            let error: ErrorResponse = response
+                .json()
+                .await
+                .unwrap_or_else(|_| ErrorResponse {
+                    error: "Unknown error".to_string(),
+                });
+            Err(StrataError::Internal(error.error))
+        }
+    }
+
+    /// Complete a multipart upload.
+    pub async fn complete_multipart_upload(
+        &self,
+        upload_id: &str,
+        parts: Vec<CompletedPartRequest>,
+    ) -> Result<CompleteMultipartResponse> {
+        let url = format!("{}/metadata/multipart/complete", self.base_url);
+        let request = CompleteMultipartRequest {
+            upload_id: upload_id.to_string(),
+            parts,
+        };
+
+        let response = self
+            .client
+            .post(&url)
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| StrataError::Network(e.to_string()))?;
+
+        if response.status().is_success() {
+            response
+                .json()
+                .await
+                .map_err(|e| StrataError::Deserialization(e.to_string()))
+        } else {
+            let error: ErrorResponse = response
+                .json()
+                .await
+                .unwrap_or_else(|_| ErrorResponse {
+                    error: "Unknown error".to_string(),
+                });
+            Err(StrataError::Internal(error.error))
+        }
+    }
+
+    /// Abort a multipart upload.
+    pub async fn abort_multipart_upload(&self, upload_id: &str) -> Result<()> {
+        let url = format!("{}/metadata/multipart/abort", self.base_url);
+        let request = AbortMultipartRequest {
+            upload_id: upload_id.to_string(),
+        };
+
+        let response = self
+            .client
+            .post(&url)
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| StrataError::Network(e.to_string()))?;
+
+        if response.status().is_success() {
+            Ok(())
+        } else {
+            let error: ErrorResponse = response
+                .json()
+                .await
+                .unwrap_or_else(|_| ErrorResponse {
+                    error: "Unknown error".to_string(),
+                });
+            Err(StrataError::Internal(error.error))
+        }
+    }
+
+    /// List parts for a multipart upload.
+    pub async fn list_parts(&self, upload_id: &str) -> Result<ListPartsResponse> {
+        let url = format!("{}/metadata/multipart/list_parts", self.base_url);
+        let request = ListPartsRequest {
+            upload_id: upload_id.to_string(),
+        };
+
+        let response = self
+            .client
+            .post(&url)
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| StrataError::Network(e.to_string()))?;
+
+        if response.status().is_success() {
+            response
+                .json()
+                .await
+                .map_err(|e| StrataError::Internal(format!("Failed to parse response: {}", e)))
+        } else {
+            let error: ErrorResponse = response
+                .json()
+                .await
+                .unwrap_or_else(|_| ErrorResponse {
+                    error: "Unknown error".to_string(),
+                });
+            Err(StrataError::Internal(error.error))
+        }
+    }
+
+    /// List all multipart uploads for a bucket.
+    pub async fn list_multipart_uploads(&self, bucket_inode: InodeId) -> Result<ListMultipartUploadsResponse> {
+        let url = format!("{}/metadata/multipart/list_uploads", self.base_url);
+        let request = ListMultipartUploadsRequest {
+            bucket_inode,
+        };
+
+        let response = self
+            .client
+            .post(&url)
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| StrataError::Network(e.to_string()))?;
+
+        if response.status().is_success() {
+            response
+                .json()
+                .await
+                .map_err(|e| StrataError::Internal(format!("Failed to parse response: {}", e)))
+        } else {
+            let error: ErrorResponse = response
+                .json()
+                .await
+                .unwrap_or_else(|_| ErrorResponse {
+                    error: "Unknown error".to_string(),
+                });
+            Err(StrataError::Internal(error.error))
+        }
+    }
 }
 
 /// Client for communicating with data servers.
@@ -504,6 +746,18 @@ struct GetattrResponse {
     inode: Option<Inode>,
 }
 
+#[derive(Serialize)]
+struct AddChunkRequest {
+    inode: InodeId,
+    chunk_id: ChunkId,
+}
+
+#[derive(Serialize)]
+struct SetSizeRequest {
+    inode: InodeId,
+    size: u64,
+}
+
 #[derive(Deserialize)]
 pub struct DataServerStatus {
     pub server_id: u64,
@@ -516,6 +770,106 @@ pub struct WriteChunkResponse {
     pub success: bool,
     pub shards: Vec<usize>,
     pub error: Option<String>,
+}
+
+// Multipart upload request/response types
+
+#[derive(Serialize)]
+struct InitiateMultipartRequest {
+    bucket_inode: InodeId,
+    key: String,
+    upload_id: String,
+}
+
+#[derive(Serialize)]
+struct UploadPartRequest {
+    upload_id: String,
+    part_number: u32,
+    chunk_id: ChunkId,
+    size: u64,
+    etag: String,
+}
+
+#[derive(Serialize)]
+struct CompleteMultipartRequest {
+    upload_id: String,
+    parts: Vec<CompletedPartRequest>,
+}
+
+/// A completed part for multipart upload completion request.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompletedPartRequest {
+    pub part_number: u32,
+    pub etag: String,
+}
+
+#[derive(Deserialize)]
+pub struct CompleteMultipartResponse {
+    pub success: bool,
+    pub inode: Option<InodeId>,
+    pub error: Option<String>,
+}
+
+#[derive(Serialize)]
+struct AbortMultipartRequest {
+    upload_id: String,
+}
+
+#[derive(Serialize)]
+struct ListPartsRequest {
+    upload_id: String,
+}
+
+/// Response for list parts request.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ListPartsResponse {
+    /// The upload ID.
+    pub upload_id: String,
+    /// The bucket inode.
+    pub bucket_inode: InodeId,
+    /// The object key.
+    pub key: String,
+    /// The parts that have been uploaded.
+    pub parts: Vec<PartInfoResponse>,
+}
+
+/// Part information in list parts response.
+#[derive(Debug, Clone, Deserialize)]
+pub struct PartInfoResponse {
+    /// Part number (1-10000).
+    pub part_number: u32,
+    /// Size in bytes.
+    pub size: u64,
+    /// ETag (MD5 hash).
+    pub etag: String,
+}
+
+#[derive(Serialize)]
+struct ListMultipartUploadsRequest {
+    bucket_inode: InodeId,
+}
+
+/// Response for list multipart uploads request.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ListMultipartUploadsResponse {
+    /// The uploads in progress.
+    pub uploads: Vec<MultipartUploadInfo>,
+}
+
+/// Information about an in-progress multipart upload.
+#[derive(Debug, Clone, Deserialize)]
+pub struct MultipartUploadInfo {
+    /// Upload ID.
+    pub upload_id: String,
+    /// Object key.
+    pub key: String,
+    /// When the upload was initiated (ISO 8601).
+    pub initiated: String,
+}
+
+#[derive(Deserialize)]
+struct ErrorResponse {
+    error: String,
 }
 
 #[cfg(test)]

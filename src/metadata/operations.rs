@@ -95,6 +95,34 @@ pub enum MetadataOp {
     DeregisterDataServer {
         server_id: DataServerId,
     },
+
+    // Multipart upload operations
+    InitiateMultipartUpload {
+        bucket_inode: InodeId,
+        key: String,
+        upload_id: String,
+    },
+    UploadPart {
+        upload_id: String,
+        part_number: u32,
+        chunk_id: ChunkId,
+        size: u64,
+        etag: String,
+    },
+    CompleteMultipartUpload {
+        upload_id: String,
+        parts: Vec<CompletedPart>,
+    },
+    AbortMultipartUpload {
+        upload_id: String,
+    },
+}
+
+/// A completed part for multipart upload.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompletedPart {
+    pub part_number: u32,
+    pub etag: String,
 }
 
 /// Result of a metadata operation.

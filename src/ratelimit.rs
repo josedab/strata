@@ -1,6 +1,44 @@
 //! Rate limiting for Strata services.
 //!
-//! Provides token bucket and sliding window rate limiters.
+//! Provides token bucket and sliding window rate limiters to protect services
+//! from overload and ensure fair resource allocation.
+//!
+//! # Algorithms
+//!
+//! - **Token Bucket**: Allows burst traffic up to bucket capacity, then rate-limited
+//! - **Sliding Window**: Tracks requests in a rolling time window
+//!
+//! # Configuration Presets
+//!
+//! | Preset | Max Requests | Window | Burst |
+//! |--------|--------------|--------|-------|
+//! | `strict()` | 100/s | 1s | 10 |
+//! | `default()` | 1,000/s | 1s | 100 |
+//! | `relaxed()` | 10,000/s | 1s | 1,000 |
+//! | `disabled()` | Unlimited | - | - |
+//!
+//! # Example
+//!
+//! ```rust,ignore
+//! use strata::ratelimit::{RateLimiter, RateLimitConfig};
+//!
+//! let limiter = RateLimiter::new(RateLimitConfig::default());
+//!
+//! // Check if request is allowed
+//! if limiter.try_acquire("client-123").await {
+//!     // Process request
+//! } else {
+//!     // Return 429 Too Many Requests
+//! }
+//!
+//! // Get current usage for a client
+//! let usage = limiter.get_usage("client-123").await;
+//! println!("Requests: {}/{}", usage.current, usage.limit);
+//! ```
+//!
+//! # Per-Client Limits
+//!
+//! Rate limits can be applied globally or per-client for multi-tenant scenarios.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};

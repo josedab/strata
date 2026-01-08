@@ -92,6 +92,7 @@ impl StrataConfig {
                 enabled: true,
                 bind_addr: "127.0.0.1:9002".parse().expect("valid socket address"),
                 region: "us-east-1".to_string(),
+                auth: S3AuthSettings::default(),
             },
             network: NetworkConfig::default(),
             storage: StorageConfig {
@@ -206,6 +207,9 @@ pub struct S3Config {
     pub bind_addr: SocketAddr,
     /// S3 region name.
     pub region: String,
+    /// Authentication configuration.
+    #[serde(default)]
+    pub auth: S3AuthSettings,
 }
 
 impl Default for S3Config {
@@ -214,8 +218,61 @@ impl Default for S3Config {
             enabled: true,
             bind_addr: "0.0.0.0:9002".parse().expect("valid socket address"),
             region: "us-east-1".to_string(),
+            auth: S3AuthSettings::default(),
         }
     }
+}
+
+/// S3 authentication settings.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct S3AuthSettings {
+    /// Whether to allow anonymous (unsigned) requests.
+    #[serde(default = "default_allow_anonymous")]
+    pub allow_anonymous: bool,
+    /// Static access credentials.
+    #[serde(default)]
+    pub credentials: Vec<S3Credential>,
+}
+
+fn default_allow_anonymous() -> bool {
+    true // Default to anonymous for backwards compatibility
+}
+
+impl Default for S3AuthSettings {
+    fn default() -> Self {
+        Self {
+            allow_anonymous: true,
+            credentials: vec![],
+        }
+    }
+}
+
+impl S3AuthSettings {
+    /// Create settings requiring authentication.
+    pub fn authenticated() -> Self {
+        Self {
+            allow_anonymous: false,
+            credentials: vec![],
+        }
+    }
+}
+
+/// An S3 access credential.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct S3Credential {
+    /// The access key ID.
+    pub access_key_id: String,
+    /// The secret access key.
+    pub secret_key: String,
+    /// Associated user ID for internal mapping.
+    #[serde(default = "default_user_id")]
+    pub user_id: String,
+    /// Optional display name.
+    pub display_name: Option<String>,
+}
+
+fn default_user_id() -> String {
+    "default".to_string()
 }
 
 /// Network configuration.
