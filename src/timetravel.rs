@@ -94,6 +94,12 @@ impl TimeSpec {
             return Ok(Self::Absolute(dt.and_utc()));
         }
 
+        // If nothing else matches and it looks like a tag name (alphanumeric with dashes/underscores/dots),
+        // treat it as a tag. This handles the case where TimePath::parse has already stripped the @.
+        if s.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == '.') {
+            return Ok(Self::Tag(s.to_string()));
+        }
+
         Err(StrataError::InvalidData(format!(
             "Cannot parse time specification: {}",
             s
@@ -173,29 +179,44 @@ pub struct TimePath {
 }
 
 impl TimePath {
+    /// Find the rightmost unescaped @ symbol (escaped @@ pairs are skipped).
+    fn find_time_separator(s: &str) -> Option<usize> {
+        let bytes = s.as_bytes();
+        let mut i = bytes.len();
+        while i > 0 {
+            i -= 1;
+            if bytes[i] == b'@' {
+                // Check if this @ is part of an @@ escape sequence
+                if i > 0 && bytes[i - 1] == b'@' {
+                    // Skip both @ symbols (the pair)
+                    i -= 1;
+                    continue;
+                }
+                return Some(i);
+            }
+        }
+        None
+    }
+
     /// Parse a time-qualified path.
     /// Format: "/path/to/file@timespec"
+    /// Use @@ to escape a literal @ in the path.
     pub fn parse(s: &str) -> Result<Self> {
-        if let Some(idx) = s.rfind('@') {
-            // Check it's not part of an email or escaped
+        if let Some(idx) = Self::find_time_separator(s) {
             let path = &s[..idx];
             let time_str = &s[idx + 1..];
 
-            // Handle @@ as escaped @
-            if time_str.starts_with('@') {
-                return Ok(Self {
-                    path: format!("{}@{}", path, &time_str[1..]),
-                    time: TimeSpec::Latest,
-                });
-            }
+            // Unescape @@ to @ in the path portion
+            let path = path.replace("@@", "@");
 
             Ok(Self {
-                path: path.to_string(),
+                path,
                 time: TimeSpec::parse(time_str)?,
             })
         } else {
+            // No time separator found - unescape @@ in path and use Latest
             Ok(Self {
-                path: s.to_string(),
+                path: s.replace("@@", "@"),
                 time: TimeSpec::Latest,
             })
         }

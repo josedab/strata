@@ -496,7 +496,7 @@ mod tests {
         let combiner = ScoreCombiner::new(CombineMode::WeightedAvg)
             .with_weights(vec![1.0, 2.0, 1.0]);
         let weighted = combiner.combine(&scores);
-        assert!((weighted - 2.25).abs() < 0.001); // (1*1 + 2*2 + 3*1) / 4 = 8/4 = 2
+        assert!((weighted - 2.0).abs() < 0.001); // (1*1 + 2*2 + 3*1) / 4 = 8/4 = 2
     }
 
     #[test]

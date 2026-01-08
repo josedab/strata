@@ -428,8 +428,8 @@ mod tests {
         TracingMiddleware::new(sampler, exporter, "test-service", "1.0.0")
     }
 
-    #[test]
-    fn test_extract_traceparent() {
+    #[tokio::test]
+    async fn test_extract_traceparent() {
         let middleware = create_middleware();
 
         let headers = vec![
@@ -441,8 +441,8 @@ mod tests {
         assert!(ctx.span.is_remote);
     }
 
-    #[test]
-    fn test_inject_headers() {
+    #[tokio::test]
+    async fn test_inject_headers() {
         let middleware = create_middleware();
         let ctx = TraceContext::root();
 
@@ -452,8 +452,8 @@ mod tests {
         assert!(headers.iter().any(|(k, _)| k == "traceparent"));
     }
 
-    #[test]
-    fn test_start_server_span() {
+    #[tokio::test]
+    async fn test_start_server_span() {
         let middleware = create_middleware();
 
         let request = middleware.start_server_span(
@@ -467,10 +467,15 @@ mod tests {
         assert!(request.context().is_valid());
     }
 
-    #[test]
-    fn test_start_client_span() {
+    #[tokio::test]
+    async fn test_start_client_span() {
         let middleware = create_middleware();
-        let parent = TraceContext::root();
+        // Create a sampled parent context - client spans respect parent sampling
+        let parent = TraceContext {
+            span: SpanContext::root().with_sampled(true),
+            parent_span_id: None,
+            baggage: Baggage::new(),
+        };
 
         let request = middleware.start_client_span(
             "rpc.GetMetadata",
@@ -483,8 +488,8 @@ mod tests {
         assert_eq!(request.context().trace_id, parent.span.trace_id);
     }
 
-    #[test]
-    fn test_traced_request_attributes() {
+    #[tokio::test]
+    async fn test_traced_request_attributes() {
         let middleware = create_middleware();
 
         let mut request = middleware.start_server_span("test", None, &[]).unwrap();

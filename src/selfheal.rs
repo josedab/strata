@@ -202,6 +202,7 @@ pub enum CauseType {
     HumanError,
     SecurityIncident,
     CapacityLimit,
+    DataIntegrity,
     Unknown,
 }
 
@@ -479,6 +480,15 @@ impl RootCauseAnalyzer {
                 cause_type: CauseType::SoftwareBug,
                 confidence_base: 0.7,
                 description: "Consensus protocol failure - possible software bug".to_string(),
+            },
+            CausePattern {
+                name: "Data Corruption".to_string(),
+                failure_types: vec![
+                    FailureType::ChunkCorruption { chunk_id: String::new(), expected_checksum: String::new() },
+                ],
+                cause_type: CauseType::DataIntegrity,
+                confidence_base: 0.8,
+                description: "Chunk data corruption detected".to_string(),
             },
         ]
     }

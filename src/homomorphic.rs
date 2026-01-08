@@ -30,10 +30,12 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::info;
 
-/// Large prime for modular arithmetic (simplified)
-const PRIME_P: u128 = 2147483647; // 2^31 - 1 (Mersenne prime)
-const PRIME_Q: u128 = 2147483629; // Another large prime
-const MODULUS_N: u128 = PRIME_P * PRIME_Q;
+/// Primes for modular arithmetic (sized to avoid u128 overflow)
+/// Note: Using small primes so n^2 * n^2 fits in u128 without overflow.
+/// In production, you would use a big integer library (like num-bigint).
+const PRIME_P: u128 = 251; // small prime
+const PRIME_Q: u128 = 241; // small prime
+const MODULUS_N: u128 = PRIME_P * PRIME_Q; // 60491, n^2 = ~3.6 billion
 
 /// Homomorphic encryption scheme types
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -144,9 +146,9 @@ pub fn generate_keypair(config: &HomomorphicConfig) -> (PublicKey, SecretKey) {
             // lambda = lcm(p-1, q-1)
             let lambda = lcm(PRIME_P - 1, PRIME_Q - 1);
 
-            // mu = L(g^lambda mod n^2)^-1 mod n
-            // Simplified: using lambda as mu for this educational implementation
-            let mu = lambda;
+            // For g = n+1, L(g^lambda mod n^2) = lambda
+            // mu = lambda^(-1) mod n
+            let mu = mod_inverse(lambda, n).expect("lambda should be invertible mod n");
 
             let public = PublicKey {
                 scheme: EncryptionScheme::Paillier,
@@ -169,10 +171,11 @@ pub fn generate_keypair(config: &HomomorphicConfig) -> (PublicKey, SecretKey) {
             let n = MODULUS_N;
             let g = n + 1;
             let lambda = lcm(PRIME_P - 1, PRIME_Q - 1);
+            let mu = mod_inverse(lambda, n).expect("lambda should be invertible mod n");
 
             (
                 PublicKey { scheme: config.scheme, n, g, key_id },
-                SecretKey { scheme: config.scheme, lambda, mu: lambda, key_id },
+                SecretKey { scheme: config.scheme, lambda, mu, key_id },
             )
         }
     }
@@ -207,6 +210,31 @@ fn mod_pow(base: u128, exp: u128, modulus: u128) -> u128 {
     }
 
     result
+}
+
+/// Extended Euclidean algorithm to find modular inverse
+fn mod_inverse(a: u128, m: u128) -> Option<u128> {
+    let (mut old_r, mut r) = (a as i128, m as i128);
+    let (mut old_s, mut s) = (1i128, 0i128);
+
+    while r != 0 {
+        let quotient = old_r / r;
+        (old_r, r) = (r, old_r - quotient * r);
+        (old_s, s) = (s, old_s - quotient * s);
+    }
+
+    if old_r != 1 {
+        return None; // No inverse exists
+    }
+
+    // Make sure result is positive
+    let result = if old_s < 0 {
+        (old_s + m as i128) as u128
+    } else {
+        old_s as u128
+    };
+
+    Some(result)
 }
 
 /// Paillier encryption context
@@ -354,16 +382,16 @@ impl OrderPreservingContext {
 
     /// Encrypt preserving order (simplified)
     pub fn encrypt(&self, value: u64) -> u64 {
-        // Simple order-preserving transformation
-        // Real OPE uses more complex algorithms
+        // Simple order-preserving transformation using addition only
+        // Real OPE uses more complex algorithms like mOPE or BCLO
         let key_sum: u64 = self.key.iter().map(|&b| b as u64).sum();
-        value.wrapping_add(key_sum) ^ (key_sum >> 8)
+        value.wrapping_add(key_sum)
     }
 
     /// Decrypt
     pub fn decrypt(&self, ciphertext: u64) -> u64 {
         let key_sum: u64 = self.key.iter().map(|&b| b as u64).sum();
-        (ciphertext ^ (key_sum >> 8)).wrapping_sub(key_sum)
+        ciphertext.wrapping_sub(key_sum)
     }
 
     /// Compare two encrypted values

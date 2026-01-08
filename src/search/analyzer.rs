@@ -549,6 +549,7 @@ mod tests {
             tokenizer: TokenizerType::PathHierarchy,
             filters: vec![],
             stemming: false,
+            min_token_length: 1, // Allow single-char tokens like "a"
             ..Default::default()
         };
         let analyzer = TextAnalyzer::new(config);

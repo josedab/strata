@@ -898,12 +898,12 @@ impl BenchmarkMetrics {
             min_us: latencies[0],
             max_us: latencies[len - 1],
             mean_us: mean,
-            median_us: latencies[len / 2],
-            p50_us: latencies[len / 2],
-            p90_us: latencies[(len as f64 * 0.9) as usize],
-            p95_us: latencies[(len as f64 * 0.95) as usize],
-            p99_us: latencies[(len as f64 * 0.99) as usize],
-            p999_us: latencies[(len as f64 * 0.999).min((len - 1) as f64) as usize],
+            median_us: latencies[(len - 1) / 2],
+            p50_us: latencies[((len - 1) as f64 * 0.5) as usize],
+            p90_us: latencies[((len - 1) as f64 * 0.9) as usize],
+            p95_us: latencies[((len - 1) as f64 * 0.95) as usize],
+            p99_us: latencies[((len - 1) as f64 * 0.99) as usize],
+            p999_us: latencies[((len - 1) as f64 * 0.999) as usize],
             std_dev_us: std_dev,
         }
     }
