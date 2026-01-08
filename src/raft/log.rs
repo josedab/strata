@@ -146,17 +146,33 @@ impl RaftLog {
 
     /// Get entries starting from the given index.
     pub fn entries_from(&self, start_index: LogIndex) -> Vec<LogEntry> {
-        if start_index > self.last_index() {
+        self.entries_from_limit(start_index, usize::MAX)
+    }
+
+    /// Get entries starting from the given index, up to a maximum count.
+    /// This is more efficient than entries_from when only a subset is needed.
+    pub fn entries_from_limit(&self, start_index: LogIndex, limit: usize) -> Vec<LogEntry> {
+        if start_index > self.last_index() || limit == 0 {
             return Vec::new();
         }
         let start = start_index.max(self.first_index);
         let offset = (start - self.first_index) as usize;
-        self.entries.iter().skip(offset).cloned().collect()
+        let available = self.entries.len().saturating_sub(offset);
+        let count = limit.min(available);
+
+        // Pre-allocate exact capacity needed
+        let mut result = Vec::with_capacity(count);
+        result.extend(self.entries.iter().skip(offset).take(count).cloned());
+        result
     }
 
     /// Get entries in a range [start, end].
     pub fn entries_range(&self, start: LogIndex, end: LogIndex) -> Vec<LogEntry> {
-        self.entries_from(start)
+        if start > end {
+            return Vec::new();
+        }
+        let count = (end - start + 1) as usize;
+        self.entries_from_limit(start, count)
             .into_iter()
             .take_while(|e| e.index <= end)
             .collect()

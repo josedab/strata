@@ -39,6 +39,7 @@ impl AuthState {
 }
 
 /// Extract auth info from request.
+#[allow(dead_code)]
 pub async fn auth_middleware(
     State(state): State<AuthState>,
     mut request: Request<Body>,
@@ -81,6 +82,7 @@ pub async fn auth_middleware(
 }
 
 /// Require a specific role.
+#[allow(dead_code)]
 pub async fn require_role(
     role: &str,
     request: Request<Body>,

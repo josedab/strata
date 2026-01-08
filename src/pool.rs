@@ -513,6 +513,7 @@ impl<T: Send + Sync + 'static> SimplePool<T> {
     }
 
     /// Return a resource to the pool.
+    #[allow(dead_code)]
     async fn return_resource(&self, resource: T) {
         let mut resources = self.resources.lock().await;
         resources.push_back(resource);

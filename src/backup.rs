@@ -395,7 +395,7 @@ mod tests {
         // Create state machine and add some data
         let mut sm = MetadataStateMachine::new();
         use crate::metadata::MetadataOp;
-        sm.apply_op(&MetadataOp::CreateFile {
+        sm.apply_op(MetadataOp::CreateFile {
             parent: 1,
             name: "test.txt".to_string(),
             mode: 0o644,

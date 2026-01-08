@@ -4,7 +4,7 @@
 //! data server failures based on heartbeat patterns.
 
 use crate::types::DataServerId;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
@@ -15,8 +15,8 @@ use tracing::{debug, info, warn};
 struct HeartbeatRecord {
     /// Last heartbeat time.
     last_heartbeat: Instant,
-    /// Heartbeat intervals for phi calculation.
-    intervals: Vec<Duration>,
+    /// Heartbeat intervals for phi calculation (VecDeque for O(1) pop_front).
+    intervals: VecDeque<Duration>,
     /// Maximum intervals to track.
     max_samples: usize,
 }
@@ -25,7 +25,7 @@ impl HeartbeatRecord {
     fn new(max_samples: usize) -> Self {
         Self {
             last_heartbeat: Instant::now(),
-            intervals: Vec::with_capacity(max_samples),
+            intervals: VecDeque::with_capacity(max_samples),
             max_samples,
         }
     }
@@ -36,9 +36,9 @@ impl HeartbeatRecord {
         self.last_heartbeat = now;
 
         if self.intervals.len() >= self.max_samples {
-            self.intervals.remove(0);
+            self.intervals.pop_front(); // O(1) instead of O(n) with Vec::remove(0)
         }
-        self.intervals.push(interval);
+        self.intervals.push_back(interval);
     }
 
     fn mean_interval(&self) -> Duration {

@@ -1,7 +1,60 @@
 //! Distributed locking with leases for Strata.
 //!
 //! Provides coordination primitives for preventing concurrent access conflicts.
-//! Uses lease-based locking with automatic expiration to handle failures.
+//! Uses lease-based locking with automatic expiration to handle node failures.
+//!
+//! # Lock Types
+//!
+//! - **Shared locks**: Allow multiple concurrent readers
+//! - **Exclusive locks**: Single writer access
+//!
+//! # Lock Scopes
+//!
+//! Locks can be acquired on various resources:
+//!
+//! | Scope | Use Case |
+//! |-------|----------|
+//! | `Inode(id)` | Lock a specific file/directory |
+//! | `Path(path)` | Lock a path (for renames) |
+//! | `ByteRange` | Lock a byte range within a file |
+//! | `Named(name)` | Application-defined coordination |
+//!
+//! # Lease-Based Design
+//!
+//! All locks have a lease duration and automatically expire if not renewed.
+//! This prevents deadlocks when a client crashes while holding a lock.
+//!
+//! # Example
+//!
+//! ```rust,ignore
+//! use strata::lock::{LockManager, LockScope, LockMode, LockRequest};
+//! use std::time::Duration;
+//!
+//! let manager = LockManager::new(LockConfig::default());
+//!
+//! // Acquire an exclusive lock on a file
+//! let request = LockRequest {
+//!     scope: LockScope::Inode(123),
+//!     mode: LockMode::Exclusive,
+//!     holder: node_id,
+//!     lease_duration: Duration::from_secs(30),
+//!     wait: true,
+//! };
+//!
+//! let lock = manager.acquire(request).await?;
+//!
+//! // Do work with exclusive access...
+//!
+//! // Release the lock
+//! manager.release(lock.id).await?;
+//! ```
+//!
+//! # Deadlock Prevention
+//!
+//! The lock manager uses several strategies to prevent deadlocks:
+//! - Lease expiration for crashed clients
+//! - Lock ordering for multi-resource acquisitions
+//! - Timeout on lock acquisition attempts
 
 use crate::error::{Result, StrataError};
 use crate::types::{InodeId, NodeId};
@@ -249,6 +302,7 @@ impl LockState {
         self.exclusive.is_some()
     }
 
+    #[allow(dead_code)]
     fn shared_count(&self) -> usize {
         self.shared.len()
     }

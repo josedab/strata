@@ -953,6 +953,7 @@ impl VersionVector {
         *counter += 1;
     }
 
+    #[allow(dead_code)]
     fn merge(&mut self, other: &VersionVector) {
         for (region, &version) in &other.versions {
             let current = self.versions.entry(region.clone()).or_insert(0);
@@ -960,6 +961,7 @@ impl VersionVector {
         }
     }
 
+    #[allow(dead_code)]
     fn compare(&self, other: &VersionVector) -> VersionComparison {
         let mut dominated = true;
         let mut dominates = true;

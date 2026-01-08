@@ -43,7 +43,7 @@ impl DataServer {
         let coder = ErasureCoder::new(self.erasure_config)?;
         let shards = coder.encode(data)?;
 
-        let mut stored_indices = Vec::new();
+        let mut stored_indices = Vec::with_capacity(shards.len());
         for (i, shard_data) in shards.iter().enumerate() {
             self.storage.write_shard(chunk_id, i, shard_data)?;
             stored_indices.push(i);
@@ -61,12 +61,13 @@ impl DataServer {
     /// Read a full chunk (with erasure decoding).
     pub fn read_chunk(&self, chunk_id: ChunkId, original_size: usize) -> crate::error::Result<Vec<u8>> {
         let coder = ErasureCoder::new(self.erasure_config)?;
+        let total_shards = self.erasure_config.total_shards();
 
         // Try to read all shards
-        let mut shards: Vec<Option<Vec<u8>>> = Vec::new();
+        let mut shards: Vec<Option<Vec<u8>>> = Vec::with_capacity(total_shards);
         let mut available = 0;
 
-        for i in 0..self.erasure_config.total_shards() {
+        for i in 0..total_shards {
             match self.storage.read_shard(chunk_id, i) {
                 Ok(data) => {
                     shards.push(Some(data));

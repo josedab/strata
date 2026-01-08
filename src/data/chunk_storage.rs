@@ -10,6 +10,7 @@ use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use tracing::{debug, error, warn};
 
 /// Stored chunk with metadata.
@@ -60,8 +61,8 @@ impl StoredChunk {
 pub struct ChunkStorage {
     /// Base directory for chunk files.
     data_dir: PathBuf,
-    /// LRU cache for frequently accessed chunks.
-    cache: Mutex<LruCache<(ChunkId, usize), Vec<u8>>>,
+    /// LRU cache for frequently accessed chunks (Arc for cheap sharing).
+    cache: Mutex<LruCache<(ChunkId, usize), Arc<Vec<u8>>>>,
     /// Cache size in bytes.
     cache_size: usize,
     /// Current cache usage.
@@ -133,9 +134,10 @@ impl ChunkStorage {
 
     /// Read a chunk shard from storage.
     pub fn read_shard(&self, chunk_id: ChunkId, shard_index: usize) -> Result<Vec<u8>> {
-        // Check cache first
+        // Check cache first (Arc clone is cheap)
         if let Some(data) = self.cache_get(chunk_id, shard_index) {
-            return Ok(data);
+            // Try to unwrap Arc if we're the only holder, otherwise clone inner Vec
+            return Ok(Arc::try_unwrap(data).unwrap_or_else(|arc| (*arc).clone()));
         }
 
         let path = self.shard_path(chunk_id, shard_index);
@@ -309,28 +311,29 @@ impl ChunkStorage {
 
     // Cache operations
 
-    fn cache_get(&self, chunk_id: ChunkId, shard_index: usize) -> Option<Vec<u8>> {
-        self.cache.lock().get(&(chunk_id, shard_index)).cloned()
+    fn cache_get(&self, chunk_id: ChunkId, shard_index: usize) -> Option<Arc<Vec<u8>>> {
+        self.cache.lock().get(&(chunk_id, shard_index)).map(Arc::clone)
     }
 
     fn cache_put(&self, chunk_id: ChunkId, shard_index: usize, data: Vec<u8>) {
         let data_len = data.len();
+        let data = Arc::new(data);
 
-        // Check if we need to evict
-        {
-            let mut bytes_used = self.cache_bytes_used.lock();
-            while *bytes_used + data_len > self.cache_size {
-                let mut cache = self.cache.lock();
-                if let Some((_, evicted)) = cache.pop_lru() {
-                    *bytes_used = bytes_used.saturating_sub(evicted.len());
-                } else {
-                    break;
-                }
+        // Use single lock scope to avoid contention from nested locks
+        let mut cache = self.cache.lock();
+        let mut bytes_used = self.cache_bytes_used.lock();
+
+        // Evict until we have room
+        while *bytes_used + data_len > self.cache_size {
+            if let Some((_, evicted)) = cache.pop_lru() {
+                *bytes_used = bytes_used.saturating_sub(evicted.len());
+            } else {
+                break;
             }
-            *bytes_used += data_len;
         }
 
-        self.cache.lock().put((chunk_id, shard_index), data);
+        *bytes_used += data_len;
+        cache.put((chunk_id, shard_index), data);
     }
 
     fn cache_remove(&self, chunk_id: ChunkId, shard_index: usize) {

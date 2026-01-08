@@ -540,11 +540,7 @@ impl<S: StateMachine + 'static> RaftNode<S> {
                 let prev_log_index = next_index.saturating_sub(1);
                 let prev_log_term = log.term_at(prev_log_index).unwrap_or(0);
 
-                let entries: Vec<_> = log
-                    .entries_from(next_index)
-                    .into_iter()
-                    .take(config.max_entries_per_append)
-                    .collect();
+                let entries = log.entries_from_limit(next_index, config.max_entries_per_append);
 
                 (prev_log_index, prev_log_term, entries)
             };

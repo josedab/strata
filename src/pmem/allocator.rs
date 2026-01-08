@@ -62,6 +62,7 @@ impl PmemAllocation {
 }
 
 /// Free block entry
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 struct FreeBlock {
     offset: u64,

@@ -1,6 +1,63 @@
 //! Read caching module for Strata.
 //!
-//! Provides LRU caching for chunk data to improve read performance.
+//! Provides LRU caching for chunk data to improve read performance. The cache
+//! automatically evicts least-recently-used entries when capacity is reached
+//! and supports time-based expiration.
+//!
+//! # Features
+//!
+//! - **LRU Eviction**: Least recently used entries are evicted first
+//! - **Size Limits**: Configurable maximum cache size in bytes
+//! - **Time-based Expiration**: Entries expire after a configurable duration
+//! - **Statistics**: Track hit/miss ratios and cache efficiency
+//! - **Thread-safe**: Safe for concurrent access using async locks
+//!
+//! # Configuration Presets
+//!
+//! | Preset | Size | Max Entries | Max Age |
+//! |--------|------|-------------|---------|
+//! | `small()` | 64 MB | 1,000 | 2 minutes |
+//! | `default()` | 256 MB | 10,000 | 5 minutes |
+//! | `large()` | 1 GB | 100,000 | 10 minutes |
+//!
+//! # Example
+//!
+//! ```rust,ignore
+//! use strata::cache::{ReadCache, ReadCacheConfig, CacheKey};
+//! use strata::types::ChunkId;
+//!
+//! // Create a cache with default configuration
+//! let cache = ReadCache::new(ReadCacheConfig::default());
+//!
+//! // Store data
+//! let chunk_id = ChunkId::new();
+//! let key = CacheKey::chunk(chunk_id);
+//! cache.put(key, vec![1, 2, 3, 4, 5]).await;
+//!
+//! // Retrieve data
+//! if let Some(data) = cache.get(&key).await {
+//!     println!("Cache hit: {} bytes", data.len());
+//! }
+//!
+//! // Check statistics
+//! let stats = cache.stats().await;
+//! println!("Hit ratio: {:.1}%", stats.hit_ratio() * 100.0);
+//! ```
+//!
+//! # Cache Invalidation
+//!
+//! Entries can be invalidated individually or by chunk:
+//!
+//! ```rust,ignore
+//! // Remove a specific entry
+//! cache.remove(&key).await;
+//!
+//! // Invalidate all entries for a chunk (including all shards)
+//! cache.invalidate_chunk(chunk_id).await;
+//!
+//! // Clear entire cache
+//! cache.clear().await;
+//! ```
 
 use crate::types::ChunkId;
 use lru::LruCache;
