@@ -534,7 +534,7 @@ impl Connector for StdoutConnector {
 
     async fn send(&self, event: &ChangeEvent) -> Result<()> {
         let json = event.to_json().map_err(|e| StrataError::Serialization(e.to_string()))?;
-        println!("[CDC] {}", json);
+        info!(target: "strata::cdc", "{}", json);
         self.stats.events_sent.fetch_add(1, Ordering::Relaxed);
         self.stats.bytes_sent.fetch_add(json.len() as u64, Ordering::Relaxed);
         Ok(())

@@ -715,7 +715,7 @@ impl AuditLogger {
 
         if self.config.log_to_stdout {
             if let Ok(json) = serde_json::to_string(&event) {
-                println!("AUDIT: {}", json);
+                info!(target: "strata::audit", "{}", json);
             }
         }
 

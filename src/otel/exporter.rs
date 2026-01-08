@@ -327,14 +327,16 @@ impl SpanExporter for ConsoleExporter {
         let count = spans.len();
 
         for span in spans {
-            println!("Span: {} [{}]", span.name, span.context.trace_id);
-            println!("  Kind: {:?}", span.kind);
-            println!("  Duration: {:?}", span.duration());
-            println!("  Status: {:?}", span.status);
-            for (key, value) in &span.attributes {
-                println!("  {}: {:?}", key, value);
-            }
-            println!();
+            debug!(
+                target: "strata::otel",
+                name = %span.name,
+                trace_id = %span.context.trace_id,
+                kind = ?span.kind,
+                duration = ?span.duration(),
+                status = ?span.status,
+                attributes = ?span.attributes,
+                "Exported span"
+            );
         }
 
         Ok(ExportResult {
