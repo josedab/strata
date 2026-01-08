@@ -108,8 +108,20 @@ struct MappedRegion {
     _fd: Option<std::fs::File>,
 }
 
-// Safety: PmemDevice manages raw pointers but ensures safe access
+// SAFETY: PmemDevice can be sent between threads because:
+// 1. The raw pointer `addr` in MappedRegion points to memory allocated by the global allocator
+//    which is thread-safe for send operations.
+// 2. All access to the mapped region is guarded by methods that take &mut self, ensuring
+//    exclusive access during reads/writes.
+// 3. The file descriptor (if present) is not shared; it's owned by this struct.
 unsafe impl Send for PmemDevice {}
+
+// SAFETY: PmemDevice can be shared between threads because:
+// 1. The DeviceInfo and DeviceStats fields are safe to share.
+// 2. Access to MappedRegion requires &mut self (write, read, flush methods), so concurrent
+//    access is not possible through shared references alone - callers must use external
+//    synchronization (e.g., RwLock<PmemDevice>) for concurrent access.
+// 3. Immutable methods (info, stats, is_open, base_addr) only read data.
 unsafe impl Sync for PmemDevice {}
 
 /// Device statistics
@@ -153,6 +165,8 @@ impl PmemDevice {
         let layout = std::alloc::Layout::from_size_align(len, 4096)
             .map_err(|e| StrataError::Internal(e.to_string()))?;
 
+        // SAFETY: Layout is valid (checked above via from_size_align which returns Err on invalid).
+        // The allocated memory is zeroed and will be deallocated in close() or Drop.
         let addr = unsafe { std::alloc::alloc_zeroed(layout) };
         if addr.is_null() {
             return Err(StrataError::ResourceExhausted(
@@ -174,6 +188,9 @@ impl PmemDevice {
         if let Some(region) = self.mapped_region.take() {
             let layout = std::alloc::Layout::from_size_align(region.len, 4096)
                 .map_err(|e| StrataError::Internal(e.to_string()))?;
+            // SAFETY: The pointer `region.addr` was allocated by alloc_zeroed in open()
+            // with the same layout (size and alignment). We take() the region ensuring
+            // this deallocation happens exactly once.
             unsafe {
                 std::alloc::dealloc(region.addr, layout);
             }
@@ -194,6 +211,10 @@ impl PmemDevice {
             ));
         }
 
+        // SAFETY: The bounds check above ensures offset + data.len() <= region.len.
+        // The source (data) and destination (region.addr + offset) do not overlap
+        // because data is a separate slice and region is our allocated buffer.
+        // Both pointers are valid and properly aligned for u8.
         unsafe {
             std::ptr::copy_nonoverlapping(data.as_ptr(), region.addr.add(offset), data.len());
         }
@@ -218,6 +239,10 @@ impl PmemDevice {
         }
 
         let mut data = vec![0u8; len];
+        // SAFETY: The bounds check above ensures offset + len <= region.len.
+        // The source (region.addr + offset) and destination (data) do not overlap
+        // because data is a freshly allocated Vec. Both pointers are valid and
+        // properly aligned for u8.
         unsafe {
             std::ptr::copy_nonoverlapping(region.addr.add(offset), data.as_mut_ptr(), len);
         }

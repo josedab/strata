@@ -731,6 +731,11 @@ impl IoUringBackend {
 
         use std::os::unix::io::FromRawFd;
 
+        // SAFETY: The file descriptor `fd` was obtained from a valid open file via
+        // IoOperation::Open or passed by the caller. We use `mem::forget` after operations
+        // to prevent the File from closing the fd on drop, as ownership remains with the caller.
+        // This is a borrow pattern: we temporarily wrap the fd to use File's methods,
+        // then forget the wrapper to avoid double-close.
         let mut file = unsafe { File::from_raw_fd(fd) };
         let result = (|| -> io::Result<Vec<u8>> {
             file.seek(SeekFrom::Start(offset))?;
@@ -740,7 +745,7 @@ impl IoUringBackend {
             Ok(buffer)
         })();
 
-        // Don't close the fd when file is dropped
+        // Don't close the fd when file is dropped - ownership remains with caller
         std::mem::forget(file);
 
         match result {
@@ -763,6 +768,9 @@ impl IoUringBackend {
     fn execute_write(fd: RawFd, offset: u64, data: &[u8], stats: &IoUringStats) -> IoResult {
         use std::os::unix::io::FromRawFd;
 
+        // SAFETY: The file descriptor `fd` was obtained from a valid open file.
+        // We use `mem::forget` after operations to prevent double-close, as
+        // ownership of the fd remains with the caller.
         let mut file = unsafe { File::from_raw_fd(fd) };
         let result = (|| -> io::Result<usize> {
             file.seek(SeekFrom::Start(offset))?;
@@ -791,6 +799,9 @@ impl IoUringBackend {
     fn execute_readv(fd: RawFd, offset: u64, lens: &[usize], stats: &IoUringStats) -> IoResult {
         use std::os::unix::io::FromRawFd;
 
+        // SAFETY: The file descriptor `fd` was obtained from a valid open file.
+        // We use `mem::forget` after operations to prevent double-close, as
+        // ownership of the fd remains with the caller.
         let mut file = unsafe { File::from_raw_fd(fd) };
         let result = (|| -> io::Result<Vec<Vec<u8>>> {
             file.seek(SeekFrom::Start(offset))?;
@@ -826,6 +837,9 @@ impl IoUringBackend {
     fn execute_writev(fd: RawFd, offset: u64, buffers: &[Vec<u8>], stats: &IoUringStats) -> IoResult {
         use std::os::unix::io::FromRawFd;
 
+        // SAFETY: The file descriptor `fd` was obtained from a valid open file.
+        // We use `mem::forget` after operations to prevent double-close, as
+        // ownership of the fd remains with the caller.
         let mut file = unsafe { File::from_raw_fd(fd) };
         let result = (|| -> io::Result<usize> {
             file.seek(SeekFrom::Start(offset))?;
@@ -858,6 +872,9 @@ impl IoUringBackend {
     fn execute_fsync(fd: RawFd, datasync: bool) -> IoResult {
         use std::os::unix::io::FromRawFd;
 
+        // SAFETY: The file descriptor `fd` was obtained from a valid open file.
+        // We use `mem::forget` after operations to prevent double-close, as
+        // ownership of the fd remains with the caller.
         let file = unsafe { File::from_raw_fd(fd) };
         let result = if datasync {
             file.sync_data()
@@ -905,6 +922,9 @@ impl IoUringBackend {
 
     fn execute_close(fd: RawFd) -> IoResult {
         use std::os::unix::io::FromRawFd;
+        // SAFETY: The file descriptor `fd` was obtained from a valid open file via
+        // IoOperation::Open. The caller is explicitly requesting to close this fd,
+        // so we take ownership and let File's Drop impl close it.
         let file = unsafe { File::from_raw_fd(fd) };
         drop(file); // This will close the fd
         IoResult::Close

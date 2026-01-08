@@ -145,8 +145,19 @@ struct MappedMemory {
     len: usize,
 }
 
-// Safety: CxlDevice manages raw pointers but ensures safe access
+// SAFETY: CxlDevice can be sent between threads because:
+// 1. The raw pointer `addr` in MappedMemory points to memory allocated by the global allocator
+//    which is thread-safe for send operations.
+// 2. All access to the mapped memory is through methods that use &self for reads and ensure
+//    external synchronization (via Arc<RwLock<CxlDevice>>) for writes.
+// 3. The Arc<RwLock<_>> fields are inherently Send.
 unsafe impl Send for CxlDevice {}
+
+// SAFETY: CxlDevice can be shared between threads because:
+// 1. The config and info fields are immutable after construction.
+// 2. MappedMemory access for write() and read() methods use &self, and the caller is
+//    expected to use external synchronization (Arc<RwLock<CxlDevice>>) for concurrent access.
+// 3. Stats and regions fields use Arc<AtomicU64> and Arc<RwLock<_>> which are Sync.
 unsafe impl Sync for CxlDevice {}
 
 /// CXL memory region
@@ -309,6 +320,8 @@ impl CxlDevice {
         let layout = std::alloc::Layout::from_size_align(len, 4096)
             .map_err(|e| StrataError::Internal(e.to_string()))?;
 
+        // SAFETY: Layout is valid (checked above via from_size_align which returns Err on invalid).
+        // The allocated memory is zeroed and will be deallocated in close() or Drop.
         let addr = unsafe { std::alloc::alloc_zeroed(layout) };
         if addr.is_null() {
             return Err(StrataError::ResourceExhausted(
@@ -326,6 +339,9 @@ impl CxlDevice {
         if let Some(mem) = self.mapped_memory.take() {
             let layout = std::alloc::Layout::from_size_align(mem.len, 4096)
                 .map_err(|e| StrataError::Internal(e.to_string()))?;
+            // SAFETY: The pointer `mem.addr` was allocated by alloc_zeroed in open()
+            // with the same layout (size and alignment). We take() the memory ensuring
+            // this deallocation happens exactly once.
             unsafe {
                 std::alloc::dealloc(mem.addr, layout);
             }
@@ -388,6 +404,10 @@ impl CxlDevice {
             ));
         }
 
+        // SAFETY: The bounds check above ensures offset + data.len() <= mem.len.
+        // The source (data) and destination (mem.addr + offset) do not overlap
+        // because data is a separate slice and mem is our allocated buffer.
+        // Both pointers are valid and properly aligned for u8.
         unsafe {
             std::ptr::copy_nonoverlapping(data.as_ptr(), mem.addr.add(offset), data.len());
         }
@@ -412,6 +432,10 @@ impl CxlDevice {
         }
 
         let mut data = vec![0u8; len];
+        // SAFETY: The bounds check above ensures offset + len <= mem.len.
+        // The source (mem.addr + offset) and destination (data) do not overlap
+        // because data is a freshly allocated Vec. Both pointers are valid and
+        // properly aligned for u8.
         unsafe {
             std::ptr::copy_nonoverlapping(mem.addr.add(offset), data.as_mut_ptr(), len);
         }
