@@ -28,7 +28,7 @@ fn test_complete_file_lifecycle() {
     let mut sm = MetadataStateMachine::new();
 
     // 1. Create a file
-    let result = sm.apply_op(&MetadataOp::CreateFile {
+    let result = sm.apply_op(MetadataOp::CreateFile {
         parent: ROOT_INODE,
         name: "document.txt".to_string(),
         mode: 0o644,
@@ -42,17 +42,17 @@ fn test_complete_file_lifecycle() {
     let chunk1 = ChunkId::new();
     let chunk2 = ChunkId::new();
 
-    sm.apply_op(&MetadataOp::AddChunk {
+    sm.apply_op(MetadataOp::AddChunk {
         inode: file_inode,
         chunk_id: chunk1,
     });
-    sm.apply_op(&MetadataOp::AddChunk {
+    sm.apply_op(MetadataOp::AddChunk {
         inode: file_inode,
         chunk_id: chunk2,
     });
 
     // 3. Update file size
-    sm.apply_op(&MetadataOp::SetAttr {
+    sm.apply_op(MetadataOp::SetAttr {
         inode: file_inode,
         mode: None,
         uid: None,
@@ -68,7 +68,7 @@ fn test_complete_file_lifecycle() {
     assert_eq!(file.size, 8 * 1024 * 1024);
 
     // 5. Rename file
-    sm.apply_op(&MetadataOp::Rename {
+    sm.apply_op(MetadataOp::Rename {
         src_parent: ROOT_INODE,
         src_name: "document.txt".to_string(),
         dst_parent: ROOT_INODE,
@@ -80,7 +80,7 @@ fn test_complete_file_lifecycle() {
     assert!(sm.lookup(ROOT_INODE, "renamed_document.txt").is_some());
 
     // 7. Delete file
-    sm.apply_op(&MetadataOp::Delete {
+    sm.apply_op(MetadataOp::Delete {
         parent: ROOT_INODE,
         name: "renamed_document.txt".to_string(),
     });
@@ -103,7 +103,7 @@ fn test_deep_directory_hierarchy() {
     let mut dir_inodes = Vec::new();
 
     for name in &dirs {
-        let result = sm.apply_op(&MetadataOp::CreateDirectory {
+        let result = sm.apply_op(MetadataOp::CreateDirectory {
             parent: current_parent,
             name: name.to_string(),
             mode: 0o755,
@@ -116,7 +116,7 @@ fn test_deep_directory_hierarchy() {
     }
 
     // Create a file in the deepest directory
-    let result = sm.apply_op(&MetadataOp::CreateFile {
+    let result = sm.apply_op(MetadataOp::CreateFile {
         parent: current_parent,
         name: "deep_file.txt".to_string(),
         mode: 0o644,
@@ -146,7 +146,7 @@ fn test_directory_with_many_entries() {
     let mut sm = MetadataStateMachine::new();
 
     // Create a directory with many files
-    let result = sm.apply_op(&MetadataOp::CreateDirectory {
+    let result = sm.apply_op(MetadataOp::CreateDirectory {
         parent: ROOT_INODE,
         name: "large_dir".to_string(),
         mode: 0o755,
@@ -159,7 +159,7 @@ fn test_directory_with_many_entries() {
     let mut file_inodes = Vec::new();
 
     for i in 0..num_files {
-        let result = sm.apply_op(&MetadataOp::CreateFile {
+        let result = sm.apply_op(MetadataOp::CreateFile {
             parent: dir_inode,
             name: format!("file_{:04}.txt", i),
             mode: 0o644,
@@ -196,7 +196,7 @@ fn test_hard_link_workflow() {
     let mut sm = MetadataStateMachine::new();
 
     // Create original file
-    let result = sm.apply_op(&MetadataOp::CreateFile {
+    let result = sm.apply_op(MetadataOp::CreateFile {
         parent: ROOT_INODE,
         name: "original.txt".to_string(),
         mode: 0o644,
@@ -207,7 +207,7 @@ fn test_hard_link_workflow() {
 
     // Add some data
     let chunk = ChunkId::new();
-    sm.apply_op(&MetadataOp::AddChunk {
+    sm.apply_op(MetadataOp::AddChunk {
         inode: file_inode,
         chunk_id: chunk,
     });
@@ -215,7 +215,7 @@ fn test_hard_link_workflow() {
     // Create multiple hard links
     let link_names = ["link1.txt", "link2.txt", "link3.txt"];
     for name in &link_names {
-        let result = sm.apply_op(&MetadataOp::Link {
+        let result = sm.apply_op(MetadataOp::Link {
             parent: ROOT_INODE,
             name: name.to_string(),
             inode: file_inode,
@@ -235,7 +235,7 @@ fn test_hard_link_workflow() {
     }
 
     // Delete one link
-    sm.apply_op(&MetadataOp::Delete {
+    sm.apply_op(MetadataOp::Delete {
         parent: ROOT_INODE,
         name: "link1.txt".to_string(),
     });
@@ -249,7 +249,7 @@ fn test_symlink_workflow() {
     let mut sm = MetadataStateMachine::new();
 
     // Create target file
-    sm.apply_op(&MetadataOp::CreateFile {
+    sm.apply_op(MetadataOp::CreateFile {
         parent: ROOT_INODE,
         name: "target.txt".to_string(),
         mode: 0o644,
@@ -258,7 +258,7 @@ fn test_symlink_workflow() {
     });
 
     // Create symlink
-    let result = sm.apply_op(&MetadataOp::CreateSymlink {
+    let result = sm.apply_op(MetadataOp::CreateSymlink {
         parent: ROOT_INODE,
         name: "symlink".to_string(),
         target: "target.txt".to_string(),
@@ -274,7 +274,7 @@ fn test_symlink_workflow() {
     assert_eq!(symlink.file_type, FileType::Symlink);
 
     // Create symlink to directory
-    let result = sm.apply_op(&MetadataOp::CreateDirectory {
+    let result = sm.apply_op(MetadataOp::CreateDirectory {
         parent: ROOT_INODE,
         name: "target_dir".to_string(),
         mode: 0o755,
@@ -283,7 +283,7 @@ fn test_symlink_workflow() {
     });
     assert!(result.is_success());
 
-    let result = sm.apply_op(&MetadataOp::CreateSymlink {
+    let result = sm.apply_op(MetadataOp::CreateSymlink {
         parent: ROOT_INODE,
         name: "dir_link".to_string(),
         target: "target_dir".to_string(),
@@ -302,7 +302,7 @@ fn test_cross_directory_move() {
     let mut sm = MetadataStateMachine::new();
 
     // Create source and destination directories
-    let result = sm.apply_op(&MetadataOp::CreateDirectory {
+    let result = sm.apply_op(MetadataOp::CreateDirectory {
         parent: ROOT_INODE,
         name: "src".to_string(),
         mode: 0o755,
@@ -311,7 +311,7 @@ fn test_cross_directory_move() {
     });
     let src_dir = get_created_inode(&result);
 
-    let result = sm.apply_op(&MetadataOp::CreateDirectory {
+    let result = sm.apply_op(MetadataOp::CreateDirectory {
         parent: ROOT_INODE,
         name: "dst".to_string(),
         mode: 0o755,
@@ -321,7 +321,7 @@ fn test_cross_directory_move() {
     let dst_dir = get_created_inode(&result);
 
     // Create file in source directory
-    let result = sm.apply_op(&MetadataOp::CreateFile {
+    let result = sm.apply_op(MetadataOp::CreateFile {
         parent: src_dir,
         name: "moveme.txt".to_string(),
         mode: 0o644,
@@ -332,13 +332,13 @@ fn test_cross_directory_move() {
 
     // Add chunk to file
     let chunk = ChunkId::new();
-    sm.apply_op(&MetadataOp::AddChunk {
+    sm.apply_op(MetadataOp::AddChunk {
         inode: file_inode,
         chunk_id: chunk,
     });
 
     // Move file to destination
-    let result = sm.apply_op(&MetadataOp::Rename {
+    let result = sm.apply_op(MetadataOp::Rename {
         src_parent: src_dir,
         src_name: "moveme.txt".to_string(),
         dst_parent: dst_dir,
@@ -363,7 +363,7 @@ fn test_rename_overwrite() {
     let mut sm = MetadataStateMachine::new();
 
     // Create two files
-    let result = sm.apply_op(&MetadataOp::CreateFile {
+    let result = sm.apply_op(MetadataOp::CreateFile {
         parent: ROOT_INODE,
         name: "source.txt".to_string(),
         mode: 0o644,
@@ -372,7 +372,7 @@ fn test_rename_overwrite() {
     });
     let source_inode = get_created_inode(&result);
 
-    sm.apply_op(&MetadataOp::CreateFile {
+    sm.apply_op(MetadataOp::CreateFile {
         parent: ROOT_INODE,
         name: "target.txt".to_string(),
         mode: 0o644,
@@ -382,13 +382,13 @@ fn test_rename_overwrite() {
 
     // Add distinct chunk to source
     let source_chunk = ChunkId::new();
-    sm.apply_op(&MetadataOp::AddChunk {
+    sm.apply_op(MetadataOp::AddChunk {
         inode: source_inode,
         chunk_id: source_chunk,
     });
 
     // Rename source to target (overwrite)
-    let result = sm.apply_op(&MetadataOp::Rename {
+    let result = sm.apply_op(MetadataOp::Rename {
         src_parent: ROOT_INODE,
         src_name: "source.txt".to_string(),
         dst_parent: ROOT_INODE,
@@ -415,7 +415,7 @@ fn test_snapshot_complex_state() {
     let mut sm = MetadataStateMachine::new();
 
     // Create a complex directory structure
-    let result = sm.apply_op(&MetadataOp::CreateDirectory {
+    let result = sm.apply_op(MetadataOp::CreateDirectory {
         parent: ROOT_INODE,
         name: "projects".to_string(),
         mode: 0o755,
@@ -426,7 +426,7 @@ fn test_snapshot_complex_state() {
 
     // Create files with chunks
     for i in 0..5 {
-        let result = sm.apply_op(&MetadataOp::CreateFile {
+        let result = sm.apply_op(MetadataOp::CreateFile {
             parent: projects,
             name: format!("file_{}.dat", i),
             mode: 0o644,
@@ -437,7 +437,7 @@ fn test_snapshot_complex_state() {
 
         // Add chunks
         for _ in 0..3 {
-            sm.apply_op(&MetadataOp::AddChunk {
+            sm.apply_op(MetadataOp::AddChunk {
                 inode,
                 chunk_id: ChunkId::new(),
             });
@@ -445,7 +445,7 @@ fn test_snapshot_complex_state() {
     }
 
     // Create symlink
-    sm.apply_op(&MetadataOp::CreateSymlink {
+    sm.apply_op(MetadataOp::CreateSymlink {
         parent: ROOT_INODE,
         name: "proj_link".to_string(),
         target: "projects".to_string(),
@@ -487,7 +487,7 @@ fn test_data_server_registration_workflow() {
 
     // Register multiple data servers
     for i in 1..=5 {
-        let result = sm.apply_op(&MetadataOp::RegisterDataServer {
+        let result = sm.apply_op(MetadataOp::RegisterDataServer {
             server_id: i,
             address: format!("192.168.1.{}:9000", i),
             capacity: 1_000_000_000_000, // 1 TB
@@ -502,7 +502,7 @@ fn test_data_server_registration_workflow() {
     // Update status with varying usage
     for i in 1..=5 {
         let used = (i as u64) * 100_000_000_000; // 100 GB per server
-        sm.apply_op(&MetadataOp::UpdateDataServerStatus {
+        sm.apply_op(MetadataOp::UpdateDataServerStatus {
             server_id: i,
             used,
             online: true,
@@ -510,7 +510,7 @@ fn test_data_server_registration_workflow() {
     }
 
     // Deregister one server
-    sm.apply_op(&MetadataOp::DeregisterDataServer { server_id: 3 });
+    sm.apply_op(MetadataOp::DeregisterDataServer { server_id: 3 });
 
     let remaining = sm.get_data_servers();
     assert_eq!(remaining.len(), 4);
@@ -526,14 +526,14 @@ fn test_operations_on_nonexistent() {
     let mut sm = MetadataStateMachine::new();
 
     // Delete nonexistent file
-    let result = sm.apply_op(&MetadataOp::Delete {
+    let result = sm.apply_op(MetadataOp::Delete {
         parent: ROOT_INODE,
         name: "nonexistent.txt".to_string(),
     });
     assert!(!result.is_success());
 
     // Rename nonexistent file
-    let result = sm.apply_op(&MetadataOp::Rename {
+    let result = sm.apply_op(MetadataOp::Rename {
         src_parent: ROOT_INODE,
         src_name: "nonexistent.txt".to_string(),
         dst_parent: ROOT_INODE,
@@ -542,7 +542,7 @@ fn test_operations_on_nonexistent() {
     assert!(!result.is_success());
 
     // Link to nonexistent inode
-    let result = sm.apply_op(&MetadataOp::Link {
+    let result = sm.apply_op(MetadataOp::Link {
         parent: ROOT_INODE,
         name: "bad_link.txt".to_string(),
         inode: 99999,
@@ -555,7 +555,7 @@ fn test_duplicate_creation() {
     let mut sm = MetadataStateMachine::new();
 
     // Create a file
-    sm.apply_op(&MetadataOp::CreateFile {
+    sm.apply_op(MetadataOp::CreateFile {
         parent: ROOT_INODE,
         name: "exists.txt".to_string(),
         mode: 0o644,
@@ -564,7 +564,7 @@ fn test_duplicate_creation() {
     });
 
     // Try to create another file with same name
-    let result = sm.apply_op(&MetadataOp::CreateFile {
+    let result = sm.apply_op(MetadataOp::CreateFile {
         parent: ROOT_INODE,
         name: "exists.txt".to_string(),
         mode: 0o644,
@@ -574,7 +574,7 @@ fn test_duplicate_creation() {
     assert!(!result.is_success());
 
     // Same for directory
-    sm.apply_op(&MetadataOp::CreateDirectory {
+    sm.apply_op(MetadataOp::CreateDirectory {
         parent: ROOT_INODE,
         name: "dir".to_string(),
         mode: 0o755,
@@ -582,7 +582,7 @@ fn test_duplicate_creation() {
         gid: 1000,
     });
 
-    let result = sm.apply_op(&MetadataOp::CreateDirectory {
+    let result = sm.apply_op(MetadataOp::CreateDirectory {
         parent: ROOT_INODE,
         name: "dir".to_string(),
         mode: 0o755,
@@ -608,7 +608,7 @@ fn test_special_characters_in_names() {
     ];
 
     for name in &special_names {
-        let result = sm.apply_op(&MetadataOp::CreateFile {
+        let result = sm.apply_op(MetadataOp::CreateFile {
             parent: ROOT_INODE,
             name: name.to_string(),
             mode: 0o644,
@@ -630,7 +630,7 @@ fn test_special_characters_in_names() {
 fn test_large_chunk_count() {
     let mut sm = MetadataStateMachine::new();
 
-    let result = sm.apply_op(&MetadataOp::CreateFile {
+    let result = sm.apply_op(MetadataOp::CreateFile {
         parent: ROOT_INODE,
         name: "huge_file.bin".to_string(),
         mode: 0o644,
@@ -642,7 +642,7 @@ fn test_large_chunk_count() {
     // Add many chunks (simulating a very large file)
     let chunk_count = 1000;
     for _ in 0..chunk_count {
-        sm.apply_op(&MetadataOp::AddChunk {
+        sm.apply_op(MetadataOp::AddChunk {
             inode: file_inode,
             chunk_id: ChunkId::new(),
         });
@@ -656,7 +656,7 @@ fn test_large_chunk_count() {
 fn test_wide_directory() {
     let mut sm = MetadataStateMachine::new();
 
-    let result = sm.apply_op(&MetadataOp::CreateDirectory {
+    let result = sm.apply_op(MetadataOp::CreateDirectory {
         parent: ROOT_INODE,
         name: "wide".to_string(),
         mode: 0o755,
@@ -669,7 +669,7 @@ fn test_wide_directory() {
     let entry_count = 500;
     for i in 0..entry_count {
         if i % 2 == 0 {
-            sm.apply_op(&MetadataOp::CreateFile {
+            sm.apply_op(MetadataOp::CreateFile {
                 parent: dir_inode,
                 name: format!("entry_{:05}", i),
                 mode: 0o644,
@@ -677,7 +677,7 @@ fn test_wide_directory() {
                 gid: 1000,
             });
         } else {
-            sm.apply_op(&MetadataOp::CreateDirectory {
+            sm.apply_op(MetadataOp::CreateDirectory {
                 parent: dir_inode,
                 name: format!("entry_{:05}", i),
                 mode: 0o755,
