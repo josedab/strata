@@ -3,6 +3,13 @@
 //! Provides snapshot functionality for data protection and recovery.
 //! Supports file, directory, and volume-level snapshots.
 
+pub mod lifecycle;
+
+pub use lifecycle::{
+    LifecycleConfig, LifecycleEvent, LifecycleStats, PolicyResult, PolicyState,
+    RetentionConfig, RetentionReason, SnapshotLifecycleManager,
+};
+
 use crate::error::{Result, StrataError};
 use crate::types::{ChunkId, InodeId};
 use chrono::{DateTime, Utc};
