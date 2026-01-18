@@ -13,9 +13,10 @@ use tokio::sync::{mpsc, oneshot, RwLock};
 
 use strata::error::{Result, StrataError};
 use strata::raft::{
-    AppendEntriesRequest, AppendEntriesResponse, LogEntry, RaftCommand, RaftConfig, RaftLog,
-    RaftNode, RaftRpc, RaftStorage, RequestVoteRequest, RequestVoteResponse,
-    InstallSnapshotRequest, InstallSnapshotResponse, StateMachine,
+    AppendEntriesRequest, AppendEntriesResponse, InstallSnapshotRequest, InstallSnapshotResponse,
+    LogEntry, RaftCommand, RaftConfig, RaftLog, RaftNode, RaftRpc, RaftStorage,
+    ReadIndexRequest, ReadIndexResponse, RequestVoteRequest, RequestVoteResponse, StateMachine,
+    TimeoutNowRequest, TimeoutNowResponse,
 };
 use strata::types::NodeId;
 
@@ -101,7 +102,32 @@ impl RaftRpc for SimpleTestRpc {
         _target: NodeId,
         _request: InstallSnapshotRequest,
     ) -> Result<InstallSnapshotResponse> {
-        Ok(InstallSnapshotResponse { term: 1 })
+        Ok(InstallSnapshotResponse {
+            term: 1,
+            done: true,
+            next_offset: 0,
+        })
+    }
+
+    async fn timeout_now(
+        &self,
+        _target: NodeId,
+        _request: TimeoutNowRequest,
+    ) -> Result<TimeoutNowResponse> {
+        Ok(TimeoutNowResponse { term: 1 })
+    }
+
+    async fn read_index(
+        &self,
+        _target: NodeId,
+        _request: ReadIndexRequest,
+    ) -> Result<ReadIndexResponse> {
+        Ok(ReadIndexResponse {
+            term: 1,
+            success: true,
+            read_index: 0,
+            request_id: 0,
+        })
     }
 }
 
@@ -467,6 +493,9 @@ async fn test_raft_node_creation() {
         heartbeat_interval: Duration::from_millis(50),
         max_entries_per_append: 100,
         snapshot_threshold: 10000,
+        snapshot_chunk_size: 1024 * 1024,
+        transfer_leader_timeout: Duration::from_secs(10),
+        pre_vote: true,
     };
 
     let state_machine = CounterStateMachine::default();
