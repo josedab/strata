@@ -4,10 +4,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures::StreamExt;
-use kube::api::{Api, ListParams, Patch, PatchParams, PostParams};
+use kube::api::{Api, ListParams, Patch, PatchParams};
 use kube::runtime::controller::{Action, Controller as KubeController};
 use kube::runtime::watcher::Config;
-use kube::{Client, Resource, ResourceExt};
+use kube::{Client, ResourceExt};
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
 

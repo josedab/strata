@@ -3,15 +3,17 @@
 //! Manages Strata distributed filesystem clusters on Kubernetes.
 
 use clap::Parser;
-use tracing::{info, Level};
+use tracing::{error, info, Level};
 use tracing_subscriber::FmtSubscriber;
 
+mod backup_controller;
 mod controller;
 mod crd;
 mod error;
 mod metrics;
 mod reconciler;
 
+use backup_controller::BackupController;
 use controller::Controller;
 
 #[derive(Parser, Debug)]
@@ -70,13 +72,46 @@ async fn main() -> anyhow::Result<()> {
     // Start health server
     let health_handle = tokio::spawn(run_health_server(args.health_port));
 
-    // Create and run controller
-    let controller = Controller::new(args.namespace, args.leader_election).await?;
-    controller.run().await?;
+    // Create controllers
+    let cluster_controller = Controller::new(args.namespace.clone(), args.leader_election).await?;
+    let backup_controller = BackupController::new(args.namespace.clone()).await?;
 
-    // Wait for background tasks
-    let _ = metrics_handle.await;
-    let _ = health_handle.await;
+    // Run all controllers concurrently
+    let cluster_handle = {
+        let controller = cluster_controller;
+        tokio::spawn(async move {
+            if let Err(e) = controller.run().await {
+                error!(error = %e, "Cluster controller error");
+            }
+        })
+    };
+
+    let backup_handle = {
+        let controller = backup_controller;
+        tokio::spawn(async move {
+            if let Err(e) = controller.run_backup_controller().await {
+                error!(error = %e, "Backup controller error");
+            }
+        })
+    };
+
+    let restore_controller = BackupController::new(args.namespace).await?;
+    let restore_handle = tokio::spawn(async move {
+        if let Err(e) = restore_controller.run_restore_controller().await {
+            error!(error = %e, "Restore controller error");
+        }
+    });
+
+    info!("All controllers started");
+
+    // Wait for any controller to complete (usually due to shutdown signal)
+    tokio::select! {
+        _ = cluster_handle => info!("Cluster controller stopped"),
+        _ = backup_handle => info!("Backup controller stopped"),
+        _ = restore_handle => info!("Restore controller stopped"),
+        _ = metrics_handle => info!("Metrics server stopped"),
+        _ = health_handle => info!("Health server stopped"),
+    }
 
     Ok(())
 }

@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use k8s_openapi::api::apps::v1::{StatefulSet, StatefulSetSpec};
 use k8s_openapi::api::core::v1::{
     ConfigMap, Container, ContainerPort, EnvVar, PersistentVolumeClaim,
-    PersistentVolumeClaimSpec, Pod, PodSpec, PodTemplateSpec, ResourceRequirements, Secret,
+    PersistentVolumeClaimSpec, Pod, PodSpec, PodTemplateSpec, ResourceRequirements,
     Service, ServicePort, ServiceSpec, Volume, VolumeMount,
 };
 use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
@@ -15,8 +15,7 @@ use kube::{Client, ResourceExt};
 use tracing::{debug, info, warn};
 
 use crate::crd::{
-    ClusterCapacity, ClusterPhase, NodeStatus, StrataCluster, StrataClusterSpec,
-    StrataClusterStatus,
+    ClusterPhase, NodeStatus, StrataCluster, StrataClusterSpec, StrataClusterStatus,
 };
 use crate::error::Error;
 
@@ -612,9 +611,9 @@ placement_groups = {}
 
     async fn create_s3_gateway(
         &self,
-        namespace: &str,
+        _namespace: &str,
         cluster_name: &str,
-        spec: &StrataClusterSpec,
+        _spec: &StrataClusterSpec,
     ) -> Result<(), Error> {
         // S3 gateway would be created as a Deployment
         // Simplified for now
@@ -669,7 +668,7 @@ placement_groups = {}
     async fn get_node_statuses(
         &self,
         namespace: &str,
-        cluster_name: &str,
+        _cluster_name: &str,
         component: &str,
     ) -> Result<Vec<NodeStatus>, Error> {
         let api: Api<Pod> = Api::namespaced(self.client.clone(), namespace);

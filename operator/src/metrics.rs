@@ -7,7 +7,7 @@ use prometheus::{
 use std::net::SocketAddr;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
-use tracing::{debug, error, info};
+use tracing::info;
 
 lazy_static::lazy_static! {
     /// Total reconciliations
