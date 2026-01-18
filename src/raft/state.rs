@@ -143,8 +143,10 @@ pub struct RaftState {
     pub volatile: VolatileState,
     /// Leader-specific state (only valid when state == Leader).
     pub leader: Option<LeaderState>,
-    /// Peer node IDs.
+    /// Voting peer node IDs.
     pub peers: Vec<NodeId>,
+    /// Non-voting learner node IDs (for safe membership changes).
+    pub learners: Vec<NodeId>,
 }
 
 impl RaftState {
@@ -157,7 +159,60 @@ impl RaftState {
             volatile: VolatileState::new(),
             leader: None,
             peers,
+            learners: Vec::new(),
         }
+    }
+
+    /// Add a learner node (non-voting member).
+    pub fn add_learner(&mut self, node_id: NodeId) {
+        if !self.learners.contains(&node_id) && !self.peers.contains(&node_id) {
+            self.learners.push(node_id);
+            tracing::info!(
+                node_id = self.node_id,
+                learner = node_id,
+                "Added learner node"
+            );
+        }
+    }
+
+    /// Promote a learner to voting member.
+    pub fn promote_learner(&mut self, node_id: NodeId) {
+        if let Some(pos) = self.learners.iter().position(|&id| id == node_id) {
+            self.learners.remove(pos);
+            self.peers.push(node_id);
+            tracing::info!(
+                node_id = self.node_id,
+                promoted = node_id,
+                "Promoted learner to voting member"
+            );
+        }
+    }
+
+    /// Remove a node (voting or learner).
+    pub fn remove_node(&mut self, node_id: NodeId) {
+        if let Some(pos) = self.peers.iter().position(|&id| id == node_id) {
+            self.peers.remove(pos);
+            tracing::info!(
+                node_id = self.node_id,
+                removed = node_id,
+                "Removed voting member"
+            );
+        }
+        if let Some(pos) = self.learners.iter().position(|&id| id == node_id) {
+            self.learners.remove(pos);
+            tracing::info!(
+                node_id = self.node_id,
+                removed = node_id,
+                "Removed learner"
+            );
+        }
+    }
+
+    /// Get all nodes (voting + learners) for replication.
+    pub fn all_nodes(&self) -> Vec<NodeId> {
+        let mut nodes = self.peers.clone();
+        nodes.extend(&self.learners);
+        nodes
     }
 
     /// Transition to follower state.
