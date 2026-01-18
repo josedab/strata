@@ -19,6 +19,14 @@ pub enum RaftMessage {
     InstallSnapshot(InstallSnapshotRequest),
     /// Response to InstallSnapshot.
     InstallSnapshotResponse(InstallSnapshotResponse),
+    /// Transfer leadership to another node.
+    TransferLeadership(TransferLeadershipRequest),
+    /// Response to TransferLeadership.
+    TransferLeadershipResponse(TransferLeadershipResponse),
+    /// Timeout now - force immediate election.
+    TimeoutNow(TimeoutNowRequest),
+    /// Response to TimeoutNow.
+    TimeoutNowResponse(TimeoutNowResponse),
 }
 
 /// RequestVote RPC arguments.
@@ -99,6 +107,95 @@ pub struct InstallSnapshotRequest {
 pub struct InstallSnapshotResponse {
     /// Current term, for leader to update itself.
     pub term: Term,
+    /// Byte offset for the next expected chunk (for streaming).
+    pub next_offset: u64,
+    /// Whether the snapshot was fully received and applied.
+    pub done: bool,
+}
+
+/// TransferLeadership RPC arguments.
+/// Used to gracefully transfer leadership to another node.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TransferLeadershipRequest {
+    /// Current leader's term.
+    pub term: Term,
+    /// Current leader's ID.
+    pub leader_id: NodeId,
+    /// Target node to transfer leadership to.
+    pub target_id: NodeId,
+}
+
+/// TransferLeadership RPC response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TransferLeadershipResponse {
+    /// Current term.
+    pub term: Term,
+    /// Whether the transfer was initiated successfully.
+    pub success: bool,
+    /// Error message if transfer failed.
+    pub error: Option<String>,
+}
+
+/// TimeoutNow RPC arguments.
+/// Sent by leader to trigger immediate election on target.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TimeoutNowRequest {
+    /// Leader's term.
+    pub term: Term,
+    /// Leader's ID.
+    pub leader_id: NodeId,
+}
+
+/// TimeoutNow RPC response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TimeoutNowResponse {
+    /// Current term.
+    pub term: Term,
+}
+
+/// Membership change type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MembershipChangeType {
+    /// Add a new node to the cluster.
+    AddNode,
+    /// Remove a node from the cluster.
+    RemoveNode,
+    /// Add a non-voting learner node.
+    AddLearner,
+    /// Promote a learner to voting member.
+    PromoteLearner,
+}
+
+/// Membership change entry stored in the log.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MembershipChange {
+    /// Type of membership change.
+    pub change_type: MembershipChangeType,
+    /// Node ID being changed.
+    pub node_id: NodeId,
+    /// Node address for AddNode/AddLearner operations.
+    pub node_addr: Option<String>,
+}
+
+/// ReadIndex RPC for linearizable reads.
+/// Leader confirms it's still the leader before serving a read.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReadIndexRequest {
+    /// Client-provided read request ID for correlation.
+    pub request_id: u64,
+}
+
+/// ReadIndex RPC response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReadIndexResponse {
+    /// Current term.
+    pub term: Term,
+    /// Whether the node is still leader.
+    pub success: bool,
+    /// Read index - the commit index at which the read can be served.
+    pub read_index: LogIndex,
+    /// Request ID for correlation.
+    pub request_id: u64,
 }
 
 /// Trait for Raft RPC transport.
@@ -124,6 +221,20 @@ pub trait RaftRpc: Send + Sync {
         target: NodeId,
         request: InstallSnapshotRequest,
     ) -> crate::Result<InstallSnapshotResponse>;
+
+    /// Send TimeoutNow to trigger immediate election.
+    async fn timeout_now(
+        &self,
+        target: NodeId,
+        request: TimeoutNowRequest,
+    ) -> crate::Result<TimeoutNowResponse>;
+
+    /// Request a read index for linearizable reads.
+    async fn read_index(
+        &self,
+        target: NodeId,
+        request: ReadIndexRequest,
+    ) -> crate::Result<ReadIndexResponse>;
 }
 
 /// In-memory RPC implementation for testing.
@@ -203,6 +314,36 @@ pub mod mock {
                 RaftMessage::InstallSnapshotResponse(resp) => Ok(resp),
                 _ => Err(crate::StrataError::Internal("Unexpected response".into())),
             }
+        }
+
+        async fn timeout_now(
+            &self,
+            target: NodeId,
+            request: TimeoutNowRequest,
+        ) -> crate::Result<TimeoutNowResponse> {
+            let handlers = self.handlers.lock().await;
+            let handler = handlers.get(&target).ok_or_else(|| {
+                crate::StrataError::NodeNotFound(target)
+            })?;
+
+            match handler(RaftMessage::TimeoutNow(request)) {
+                RaftMessage::TimeoutNowResponse(resp) => Ok(resp),
+                _ => Err(crate::StrataError::Internal("Unexpected response".into())),
+            }
+        }
+
+        async fn read_index(
+            &self,
+            _target: NodeId,
+            request: ReadIndexRequest,
+        ) -> crate::Result<ReadIndexResponse> {
+            // Mock implementation - return success with commit index 0
+            Ok(ReadIndexResponse {
+                term: 0,
+                success: true,
+                read_index: 0,
+                request_id: request.request_id,
+            })
         }
     }
 }
