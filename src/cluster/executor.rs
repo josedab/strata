@@ -1,6 +1,9 @@
 //! Background recovery executor for self-healing chunk replication.
 
-use super::{PlacementEngine, RecoveryManager, RecoveryTask};
+use super::{
+    ClusterCoordinator, DegradationLevel, DegradationPolicy, HealthEvaluator,
+    LockType, PlacementEngine, RecoveryManager, RecoveryTask,
+};
 use crate::client::DataClient;
 use crate::error::{Result, StrataError};
 use crate::types::*;
@@ -22,6 +25,12 @@ pub struct RecoveryExecutor {
     max_concurrent: usize,
     /// Shutdown signal receiver.
     shutdown_rx: Option<broadcast::Receiver<()>>,
+    /// Distributed coordinator for cluster-wide operations.
+    coordinator: Option<Arc<ClusterCoordinator>>,
+    /// Health evaluator for graceful degradation.
+    health_evaluator: HealthEvaluator,
+    /// Statistics tracking.
+    stats: Arc<RwLock<RecoveryStats>>,
 }
 
 /// Shared cluster state for the executor.
@@ -94,7 +103,22 @@ impl RecoveryExecutor {
             check_interval: Duration::from_secs(60),
             max_concurrent: 10,
             shutdown_rx,
+            coordinator: None,
+            health_evaluator: HealthEvaluator::new(DegradationPolicy::default()),
+            stats: Arc::new(RwLock::new(RecoveryStats::default())),
         }
+    }
+
+    /// Create with a distributed coordinator for cluster-wide coordination.
+    pub fn with_coordinator(mut self, coordinator: Arc<ClusterCoordinator>) -> Self {
+        self.coordinator = Some(coordinator);
+        self
+    }
+
+    /// Set a custom degradation policy.
+    pub fn with_degradation_policy(mut self, policy: DegradationPolicy) -> Self {
+        self.health_evaluator = HealthEvaluator::new(policy);
+        self
     }
 
     /// Set the check interval.
@@ -138,18 +162,80 @@ impl RecoveryExecutor {
 
     /// Run a single recovery cycle.
     async fn run_recovery_cycle(&self, state: &ClusterState) -> Result<()> {
+        // Evaluate cluster health first
+        let (healthy_count, total_count, under_replicated_count) = {
+            let servers = state.servers.read().await;
+            let chunks = state.chunks.read().await;
+
+            let healthy = servers
+                .values()
+                .filter(|s| s.status == ServerStatus::Online)
+                .count();
+            let total = servers.len();
+
+            let under_rep = self
+                .recovery_manager
+                .find_under_replicated(&chunks, &servers)
+                .len();
+
+            (healthy, total, under_rep)
+        };
+
+        // Check degradation level
+        let degradation = self
+            .health_evaluator
+            .evaluate(healthy_count, total_count, under_replicated_count);
+
+        // Handle degraded mode with coordinator
+        if let Some(ref coordinator) = self.coordinator {
+            match degradation {
+                DegradationLevel::None => {
+                    if coordinator.is_degraded().await {
+                        coordinator.exit_degraded_mode().await;
+                    }
+                }
+                DegradationLevel::Minor | DegradationLevel::Major => {
+                    let disabled = self.health_evaluator.disabled_operations(degradation);
+                    let reason = format!("Cluster health: {} of {} nodes healthy", healthy_count, total_count);
+                    coordinator.enter_degraded_mode(&reason, disabled).await;
+                }
+                DegradationLevel::Critical => {
+                    warn!(
+                        healthy = healthy_count,
+                        total = total_count,
+                        "Critical cluster health - limiting recovery operations"
+                    );
+                    let disabled = self.health_evaluator.disabled_operations(degradation);
+                    coordinator
+                        .enter_degraded_mode("Critical: insufficient healthy nodes", disabled)
+                        .await;
+                }
+            }
+        }
+
         let chunks = state.chunks.read().await;
         let servers = state.servers.read().await;
 
         // Find under-replicated chunks
-        let under_replicated = self.recovery_manager.find_under_replicated(&chunks, &servers);
+        let under_replicated = self
+            .recovery_manager
+            .find_under_replicated(&chunks, &servers);
+
+        // Update stats
+        {
+            let mut stats = self.stats.write().await;
+            stats.chunks_under_replicated = under_replicated.len();
+        }
 
         if under_replicated.is_empty() {
             debug!("No under-replicated chunks found");
             return Ok(());
         }
 
-        info!(count = under_replicated.len(), "Found under-replicated chunks");
+        info!(
+            count = under_replicated.len(),
+            "Found under-replicated chunks"
+        );
 
         // Create recovery plan
         let server_list: Vec<_> = servers.values().cloned().collect();
@@ -162,13 +248,57 @@ impl RecoveryExecutor {
         drop(chunks);
         drop(servers);
 
+        // Limit concurrent recoveries based on degradation level
+        let max_concurrent = match degradation {
+            DegradationLevel::None => self.max_concurrent,
+            DegradationLevel::Minor => self.max_concurrent / 2,
+            DegradationLevel::Major => self.max_concurrent / 4,
+            DegradationLevel::Critical => 1,
+        };
+
         // Execute recovery tasks (up to max_concurrent)
-        let tasks_to_run: Vec<_> = tasks.into_iter().take(self.max_concurrent).collect();
+        let tasks_to_run: Vec<_> = tasks
+            .into_iter()
+            .take(max_concurrent.max(1))
+            .collect();
 
         for task in tasks_to_run {
+            // Try to acquire lock if coordinator is available
+            let _lock = if let Some(ref coordinator) = self.coordinator {
+                match coordinator
+                    .try_acquire_lock(
+                        LockType::ChunkRecovery(task.chunk_id),
+                        "chunk recovery",
+                        Some(Duration::from_secs(5)),
+                    )
+                    .await
+                {
+                    Ok(guard) => Some(guard),
+                    Err(e) => {
+                        debug!(
+                            chunk_id = %task.chunk_id,
+                            error = %e,
+                            "Could not acquire recovery lock, skipping"
+                        );
+                        continue;
+                    }
+                }
+            } else {
+                None
+            };
+
             let result = self.execute_recovery(&task, state).await;
+
+            // Update stats
+            {
+                let mut stats = self.stats.write().await;
+                stats.total_recoveries += 1;
+            }
+
             match result {
                 Ok(r) if r.success => {
+                    let mut stats = self.stats.write().await;
+                    stats.successful_recoveries += 1;
                     info!(
                         chunk_id = %r.chunk_id,
                         target = r.target_server,
@@ -176,6 +306,8 @@ impl RecoveryExecutor {
                     );
                 }
                 Ok(r) => {
+                    let mut stats = self.stats.write().await;
+                    stats.failed_recoveries += 1;
                     warn!(
                         chunk_id = %r.chunk_id,
                         error = ?r.error,
@@ -183,12 +315,19 @@ impl RecoveryExecutor {
                     );
                 }
                 Err(e) => {
+                    let mut stats = self.stats.write().await;
+                    stats.failed_recoveries += 1;
                     error!(chunk_id = %task.chunk_id, error = %e, "Recovery execution error");
                 }
             }
         }
 
         Ok(())
+    }
+
+    /// Get recovery statistics.
+    pub async fn get_stats(&self) -> RecoveryStats {
+        self.stats.read().await.clone()
     }
 
     /// Execute a single recovery task.
