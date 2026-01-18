@@ -48,6 +48,7 @@ impl TokenConfig {
     ///
     /// # Panics
     /// Panics if the secret is empty. Use `try_new` for fallible construction.
+    #[allow(clippy::expect_used)]
     pub fn new(secret: impl Into<String>) -> Self {
         Self::try_new(secret).expect("Token secret must not be empty")
     }
@@ -215,6 +216,7 @@ impl Token {
     ///
     /// # Panics
     /// Panics if claims cannot be serialized. Use `try_new` for fallible construction.
+    #[allow(clippy::expect_used)]
     pub fn new(claims: Claims, secret: &str) -> Self {
         Self::try_new(claims, secret).expect("Failed to create token")
     }
@@ -334,7 +336,9 @@ impl TokenValidator {
 // Crypto helper functions using standard libraries
 
 /// Compute HMAC-SHA256 signature using the hmac crate.
+#[allow(clippy::expect_used)]
 fn compute_hmac_sha256(message: &str, key: &str) -> Vec<u8> {
+    // HMAC-SHA256 accepts keys of any size, so this cannot fail.
     let mut mac = HmacSha256::new_from_slice(key.as_bytes())
         .expect("HMAC can take key of any size");
     mac.update(message.as_bytes());
@@ -352,6 +356,7 @@ fn constant_time_compare(a: &[u8], b: &[u8]) -> bool {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 

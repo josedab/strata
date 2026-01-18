@@ -8,15 +8,26 @@
 #![deny(clippy::expect_used)]
 
 mod acl;
+pub mod kms;
 mod middleware;
 mod token;
+pub mod validation;
 
 pub use acl::{
-    AccessChecker, AccessType, AclEntry, AclEntryType, ExtendedAcl,
-    Permission, UserCredentials, check_path_access,
+    check_path_access, AccessChecker, AccessType, AclEntry, AclEntryType, ExtendedAcl, Permission,
+    UserCredentials,
+};
+pub use kms::{
+    DataKeyPair, EncryptionKey, KeyAlgorithm, KeyState, KmsProvider, KmsStats, LocalKmsProvider,
+    TenantKeyManager,
 };
 pub use middleware::{AuthLayer, AuthMiddleware, AuthState};
 pub use token::{Claims, Token, TokenConfig, TokenError, TokenValidator};
+pub use validation::{
+    is_within_base, normalize_path, sanitize_filename, validate_filename, validate_path,
+    validate_symlink_target, validate_xattr_name, PathValidationConfig, MAX_FILENAME_LENGTH,
+    MAX_PATH_LENGTH, MAX_SYMLINK_DEPTH,
+};
 
 /// Authentication result.
 #[derive(Debug, Clone)]
