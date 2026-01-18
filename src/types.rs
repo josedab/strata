@@ -89,6 +89,11 @@ impl ChunkId {
     pub fn as_bytes(&self) -> &[u8; 16] {
         self.0.as_bytes()
     }
+
+    /// Parse a ChunkId from a string representation.
+    pub fn parse(s: &str) -> Result<Self, uuid::Error> {
+        Ok(Self(Uuid::parse_str(s)?))
+    }
 }
 
 impl Default for ChunkId {
@@ -462,6 +467,189 @@ impl Default for ClusterConfig {
     }
 }
 
+/// Vector clock for tracking causality in distributed systems.
+///
+/// Vector clocks allow us to determine the causal ordering between events
+/// and detect concurrent updates that need conflict resolution.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct VectorClock {
+    /// Map from node ID to logical clock value.
+    clocks: HashMap<NodeId, u64>,
+}
+
+impl VectorClock {
+    /// Create a new empty vector clock.
+    pub fn new() -> Self {
+        Self {
+            clocks: HashMap::new(),
+        }
+    }
+
+    /// Increment the clock for a specific node.
+    pub fn increment(&mut self, node_id: NodeId) {
+        *self.clocks.entry(node_id).or_insert(0) += 1;
+    }
+
+    /// Get the clock value for a specific node.
+    pub fn get(&self, node_id: NodeId) -> u64 {
+        self.clocks.get(&node_id).copied().unwrap_or(0)
+    }
+
+    /// Merge this clock with another, taking the maximum of each component.
+    pub fn merge(&mut self, other: &VectorClock) {
+        for (&node_id, &value) in &other.clocks {
+            let current = self.clocks.entry(node_id).or_insert(0);
+            *current = (*current).max(value);
+        }
+    }
+
+    /// Check if this clock happened before another.
+    /// Returns true if self < other (self happened-before other).
+    pub fn happened_before(&self, other: &VectorClock) -> bool {
+        let mut dominated = false;
+
+        // Check that all entries in self are <= corresponding entries in other
+        for (&node_id, &value) in &self.clocks {
+            let other_value = other.get(node_id);
+            if value > other_value {
+                return false;
+            }
+            if value < other_value {
+                dominated = true;
+            }
+        }
+
+        // Check if other has any entries not in self
+        for (&node_id, &value) in &other.clocks {
+            if self.get(node_id) < value {
+                dominated = true;
+            }
+        }
+
+        dominated
+    }
+
+    /// Check if this clock is concurrent with another.
+    /// Two clocks are concurrent if neither happened-before the other.
+    pub fn concurrent_with(&self, other: &VectorClock) -> bool {
+        !self.happened_before(other) && !other.happened_before(self) && self != other
+    }
+
+    /// Compare two vector clocks.
+    pub fn compare(&self, other: &VectorClock) -> VectorClockOrdering {
+        if self == other {
+            VectorClockOrdering::Equal
+        } else if self.happened_before(other) {
+            VectorClockOrdering::Before
+        } else if other.happened_before(self) {
+            VectorClockOrdering::After
+        } else {
+            VectorClockOrdering::Concurrent
+        }
+    }
+
+    /// Get all clock entries.
+    pub fn entries(&self) -> &HashMap<NodeId, u64> {
+        &self.clocks
+    }
+
+    /// Create a clock from entries.
+    pub fn from_entries(entries: HashMap<NodeId, u64>) -> Self {
+        Self { clocks: entries }
+    }
+}
+
+/// Ordering result for vector clock comparison.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VectorClockOrdering {
+    /// First clock happened before second.
+    Before,
+    /// First clock happened after second.
+    After,
+    /// Clocks are concurrent (neither happened-before the other).
+    Concurrent,
+    /// Clocks are equal.
+    Equal,
+}
+
+/// Consistency level for read/write operations.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ConsistencyLevel {
+    /// Return immediately after local write (no replication guarantee).
+    One,
+    /// Wait for quorum (majority) of replicas to acknowledge.
+    Quorum,
+    /// Wait for all replicas to acknowledge.
+    All,
+    /// Write to local only, replicate asynchronously.
+    LocalOnly,
+}
+
+impl Default for ConsistencyLevel {
+    fn default() -> Self {
+        ConsistencyLevel::Quorum
+    }
+}
+
+impl ConsistencyLevel {
+    /// Calculate the number of nodes needed for the given level.
+    pub fn required_nodes(&self, total_nodes: usize) -> usize {
+        match self {
+            ConsistencyLevel::One => 1,
+            ConsistencyLevel::Quorum => total_nodes / 2 + 1,
+            ConsistencyLevel::All => total_nodes,
+            ConsistencyLevel::LocalOnly => 1,
+        }
+    }
+
+    /// Check if read and write consistency levels satisfy strong consistency.
+    /// R + W > N ensures linearizability.
+    pub fn strong_consistency(read_level: ConsistencyLevel, write_level: ConsistencyLevel, n: usize) -> bool {
+        let r = read_level.required_nodes(n);
+        let w = write_level.required_nodes(n);
+        r + w > n
+    }
+}
+
+/// Versioned value for conflict resolution.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VersionedValue<T> {
+    /// The actual value.
+    pub value: T,
+    /// Vector clock for this version.
+    pub clock: VectorClock,
+    /// Timestamp for tie-breaking concurrent updates.
+    pub timestamp: u64,
+    /// Node that created this version.
+    pub origin: NodeId,
+}
+
+impl<T> VersionedValue<T> {
+    /// Create a new versioned value.
+    pub fn new(value: T, node_id: NodeId, timestamp: u64) -> Self {
+        let mut clock = VectorClock::new();
+        clock.increment(node_id);
+        Self {
+            value,
+            clock,
+            timestamp,
+            origin: node_id,
+        }
+    }
+
+    /// Create a new version based on a previous version.
+    pub fn next_version(value: T, prev: &VectorClock, node_id: NodeId, timestamp: u64) -> Self {
+        let mut clock = prev.clone();
+        clock.increment(node_id);
+        Self {
+            value,
+            clock,
+            timestamp,
+            origin: node_id,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -503,5 +691,80 @@ mod tests {
         assert_eq!(config.total_shards(), 6);
         assert_eq!(config.min_required_shards(), 4);
         assert!((config.storage_overhead() - 1.5).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_vector_clock_increment() {
+        let mut clock = VectorClock::new();
+        clock.increment(1);
+        clock.increment(1);
+        clock.increment(2);
+
+        assert_eq!(clock.get(1), 2);
+        assert_eq!(clock.get(2), 1);
+        assert_eq!(clock.get(3), 0);
+    }
+
+    #[test]
+    fn test_vector_clock_merge() {
+        let mut clock1 = VectorClock::new();
+        clock1.increment(1);
+        clock1.increment(1);
+
+        let mut clock2 = VectorClock::new();
+        clock2.increment(2);
+        clock2.increment(2);
+        clock2.increment(2);
+
+        clock1.merge(&clock2);
+
+        assert_eq!(clock1.get(1), 2);
+        assert_eq!(clock1.get(2), 3);
+    }
+
+    #[test]
+    fn test_vector_clock_ordering() {
+        let mut clock1 = VectorClock::new();
+        clock1.increment(1);
+
+        let mut clock2 = clock1.clone();
+        clock2.increment(1);
+
+        assert!(clock1.happened_before(&clock2));
+        assert!(!clock2.happened_before(&clock1));
+        assert_eq!(clock1.compare(&clock2), VectorClockOrdering::Before);
+    }
+
+    #[test]
+    fn test_vector_clock_concurrent() {
+        let mut clock1 = VectorClock::new();
+        clock1.increment(1);
+
+        let mut clock2 = VectorClock::new();
+        clock2.increment(2);
+
+        assert!(clock1.concurrent_with(&clock2));
+        assert_eq!(clock1.compare(&clock2), VectorClockOrdering::Concurrent);
+    }
+
+    #[test]
+    fn test_consistency_level() {
+        assert_eq!(ConsistencyLevel::One.required_nodes(5), 1);
+        assert_eq!(ConsistencyLevel::Quorum.required_nodes(5), 3);
+        assert_eq!(ConsistencyLevel::All.required_nodes(5), 5);
+
+        // R=Quorum, W=Quorum ensures strong consistency
+        assert!(ConsistencyLevel::strong_consistency(
+            ConsistencyLevel::Quorum,
+            ConsistencyLevel::Quorum,
+            5
+        ));
+
+        // R=One, W=One does not ensure strong consistency
+        assert!(!ConsistencyLevel::strong_consistency(
+            ConsistencyLevel::One,
+            ConsistencyLevel::One,
+            5
+        ));
     }
 }
