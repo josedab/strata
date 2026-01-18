@@ -5,21 +5,26 @@
 //! - Self-healing and recovery
 //! - Rebalancing
 //! - Failure detection
+//! - Distributed coordination
 
-mod placement;
-mod recovery;
 mod balancer;
+mod coordinator;
 mod executor;
 mod failure_detector;
+mod placement;
+mod recovery;
 
+pub use balancer::{BalanceStats, Balancer, MoveOperation};
+pub use coordinator::{
+    ClusterCoordinator, CoordinatorConfig, CoordinatorStats, DegradationLevel, DegradationPolicy,
+    DegradedModeStatus, HealthEvaluator, LockGuard, LockResult, LockType,
+};
+pub use executor::{ClusterState, RecoveryExecutor, RecoveryResult, RecoveryStats};
+pub use failure_detector::{
+    FailureDetector, FailureDetectorConfig, FailureDetectorStatus, HeartbeatMonitor,
+};
 pub use placement::PlacementEngine;
 pub use recovery::{RecoveryManager, RecoveryTask};
-pub use balancer::Balancer;
-pub use executor::{RecoveryExecutor, ClusterState, RecoveryResult, RecoveryStats};
-pub use failure_detector::{
-    FailureDetector, FailureDetectorConfig, FailureDetectorStatus,
-    HeartbeatMonitor,
-};
 
 /// Cluster state summary.
 #[derive(Debug, Clone)]
