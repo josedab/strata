@@ -50,6 +50,7 @@ pub mod types;
 pub mod audit;
 pub mod auth;
 pub mod backup;
+pub mod daemon;
 pub mod cache;
 pub mod cluster;
 pub mod compression;
@@ -66,12 +67,13 @@ pub mod quota;
 pub mod raft;
 pub mod ratelimit;
 pub mod resilience;
+pub mod scheduling;
 pub mod scrub;
 pub mod shutdown;
 pub mod snapshot;
 pub mod tls;
 
-// Next-gen features
+// Next-gen features (stable)
 pub mod classify;
 pub mod compute;
 pub mod crdt;
@@ -88,26 +90,81 @@ pub mod tiering;
 pub mod timetravel;
 pub mod otel;
 pub mod multitenancy;
-pub mod cdc;
-pub mod cdp;
-pub mod worm;
-pub mod zk_encryption;
 pub mod selfheal;
 
-// Ultra next-gen features
-pub mod aiops;
+// ===========================================================================
+// EXPERIMENTAL MODULES
+//
+// The following modules are experimental and not yet production-ready.
+// They contain framework code and type definitions but may have incomplete
+// implementations. Use with caution in production environments.
+//
+// Module Status:
+// - cdc: Change Data Capture - Framework with stub implementations
+// - cdp: Continuous Data Protection - Framework with stub implementations
+// - worm: Write-Once Read-Many storage - Framework with stub implementations
+// - zk_encryption: Zero-knowledge encryption - Framework with stub implementations
+// - aiops: AI-powered operations - ML framework, requires external models
+// - gpu: GPU acceleration - Hardware-dependent, requires CUDA/ROCm
+// - pmem: Persistent memory - Hardware-dependent, requires Intel Optane
+// - rdma: RDMA networking - Hardware-dependent, requires RDMA NICs
+// - edge: Edge caching - Framework with stub implementations
+// ===========================================================================
+
+/// Change Data Capture for streaming data changes.
+/// **Status: Experimental** - Framework only, implementations are stubs.
+#[doc(hidden)]
+pub mod cdc;
+
+/// Continuous Data Protection for point-in-time recovery.
+/// **Status: Experimental** - Framework only, implementations are stubs.
+#[doc(hidden)]
+pub mod cdp;
+
+/// Write-Once Read-Many storage for compliance.
+/// **Status: Experimental** - Framework only, implementations are stubs.
+#[doc(hidden)]
+pub mod worm;
+
+/// Zero-knowledge encryption for privacy-preserving storage.
+/// **Status: Experimental** - Framework only, implementations are stubs.
+#[doc(hidden)]
+pub mod zk_encryption;
+
+// Ultra next-gen features (highly experimental)
 pub mod benchmarks;
 pub mod carbon;
 pub mod chaos;
 pub mod confidential;
 pub mod global;
-pub mod gpu;
 pub mod intent;
 pub mod iouring;
-pub mod pmem;
-pub mod rdma;
 pub mod triggers;
 pub mod vector;
+
+/// AI-powered operations for anomaly detection and auto-tuning.
+/// **Status: Experimental** - Requires ML models and training data.
+#[doc(hidden)]
+pub mod aiops;
+
+/// GPU acceleration for compute-intensive operations.
+/// **Status: Experimental** - Requires CUDA or ROCm hardware.
+#[doc(hidden)]
+pub mod gpu;
+
+/// Persistent memory support for low-latency storage.
+/// **Status: Experimental** - Requires Intel Optane or compatible hardware.
+#[doc(hidden)]
+pub mod pmem;
+
+/// RDMA networking for high-performance data transfer.
+/// **Status: Experimental** - Requires RDMA-capable network adapters.
+#[doc(hidden)]
+pub mod rdma;
+
+/// Edge caching for geographically distributed access.
+/// **Status: Experimental** - Framework only, implementations are stubs.
+#[doc(hidden)]
 pub mod edge;
 
 #[cfg(feature = "fuse")]

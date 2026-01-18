@@ -52,7 +52,24 @@ async fn main() -> anyhow::Result<()> {
             if foreground {
                 strata::fuse::mount(&mount_point, &metadata_addr)?;
             } else {
-                // TODO: Implement daemonization
+                // Daemonize the process before mounting
+                let pid_file = format!("/var/run/strata-fuse-{}.pid", std::process::id());
+                let log_dir = std::env::var("STRATA_LOG_DIR")
+                    .unwrap_or_else(|_| "/var/log/strata".to_string());
+
+                let config = strata::daemon::DaemonConfig::new()
+                    .working_directory("/")
+                    .pid_file(&pid_file)
+                    .stdout(format!("{}/fuse-stdout.log", log_dir))
+                    .stderr(format!("{}/fuse-stderr.log", log_dir));
+
+                // Attempt to create log directory if it doesn't exist
+                let _ = std::fs::create_dir_all(&log_dir);
+
+                if let Err(e) = strata::daemon::daemonize(&config) {
+                    eprintln!("Failed to daemonize: {}. Running in foreground.", e);
+                }
+
                 strata::fuse::mount(&mount_point, &metadata_addr)?;
             }
         }
