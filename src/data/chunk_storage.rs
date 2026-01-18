@@ -1,17 +1,19 @@
 //! Local chunk storage implementation.
 
 use crate::error::{Result, StrataError};
-use crate::types::ChunkId;
+use crate::types::{ChunkId, ConsistencyLevel, DataServerId, VectorClock, VersionedValue};
 use lru::LruCache;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tracing::{debug, error, warn};
+use std::time::Duration;
+use tracing::{debug, error, info, warn};
 
 /// Stored chunk with metadata.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -340,6 +342,292 @@ impl ChunkStorage {
         if let Some(data) = self.cache.lock().pop(&(chunk_id, shard_index)) {
             let mut bytes_used = self.cache_bytes_used.lock();
             *bytes_used = bytes_used.saturating_sub(data.len());
+        }
+    }
+}
+
+/// Configuration for quorum-based writes.
+#[derive(Debug, Clone)]
+pub struct QuorumWriteConfig {
+    /// Minimum number of successful writes required.
+    pub min_writes: usize,
+    /// Total number of replicas to write to.
+    pub total_replicas: usize,
+    /// Timeout for individual write operations.
+    pub write_timeout: Duration,
+    /// Whether to wait for all writes or just quorum.
+    pub wait_for_all: bool,
+    /// Retry count for failed writes.
+    pub retry_count: usize,
+}
+
+impl Default for QuorumWriteConfig {
+    fn default() -> Self {
+        Self {
+            min_writes: 2,
+            total_replicas: 3,
+            write_timeout: Duration::from_secs(30),
+            wait_for_all: false,
+            retry_count: 3,
+        }
+    }
+}
+
+impl QuorumWriteConfig {
+    /// Create a quorum config from consistency level and replica count.
+    pub fn from_consistency(level: ConsistencyLevel, replicas: usize) -> Self {
+        let min_writes = match level {
+            ConsistencyLevel::One => 1,
+            ConsistencyLevel::Quorum => (replicas / 2) + 1,
+            ConsistencyLevel::All => replicas,
+            ConsistencyLevel::LocalOnly => 1,
+        };
+
+        Self {
+            min_writes,
+            total_replicas: replicas,
+            wait_for_all: matches!(level, ConsistencyLevel::All),
+            ..Default::default()
+        }
+    }
+}
+
+/// Result of a quorum write operation.
+#[derive(Debug, Clone)]
+pub struct QuorumWriteResult {
+    /// Chunk ID that was written.
+    pub chunk_id: ChunkId,
+    /// Shard index that was written.
+    pub shard_index: usize,
+    /// Servers that successfully wrote the data.
+    pub successful_servers: Vec<DataServerId>,
+    /// Servers that failed to write.
+    pub failed_servers: Vec<(DataServerId, String)>,
+    /// Version assigned to this write.
+    pub version: VectorClock,
+    /// Whether quorum was achieved.
+    pub quorum_achieved: bool,
+}
+
+/// Coordinator for quorum-based writes across multiple servers.
+pub struct QuorumWriteCoordinator {
+    /// Configuration for quorum writes.
+    config: QuorumWriteConfig,
+    /// This node's ID (for vector clock updates).
+    node_id: DataServerId,
+    /// Local vector clocks for each chunk.
+    clocks: Arc<parking_lot::RwLock<HashMap<(ChunkId, usize), VectorClock>>>,
+    /// Write statistics.
+    stats: Arc<parking_lot::RwLock<QuorumWriteStats>>,
+}
+
+/// Statistics for quorum write operations.
+#[derive(Debug, Default, Clone)]
+pub struct QuorumWriteStats {
+    /// Total write attempts.
+    pub total_writes: u64,
+    /// Writes achieving quorum.
+    pub quorum_achieved: u64,
+    /// Writes failing to achieve quorum.
+    pub quorum_failed: u64,
+    /// Individual replica write failures.
+    pub replica_failures: u64,
+}
+
+impl QuorumWriteCoordinator {
+    /// Create a new quorum write coordinator.
+    pub fn new(config: QuorumWriteConfig, node_id: DataServerId) -> Self {
+        Self {
+            config,
+            node_id,
+            clocks: Arc::new(parking_lot::RwLock::new(HashMap::new())),
+            stats: Arc::new(parking_lot::RwLock::new(QuorumWriteStats::default())),
+        }
+    }
+
+    /// Get the next version for a chunk write.
+    pub fn next_version(&self, chunk_id: ChunkId, shard_index: usize) -> VectorClock {
+        let mut clocks = self.clocks.write();
+        let clock = clocks
+            .entry((chunk_id, shard_index))
+            .or_insert_with(VectorClock::new);
+        clock.increment(self.node_id);
+        clock.clone()
+    }
+
+    /// Update the clock after receiving a value from another node.
+    pub fn merge_version(&self, chunk_id: ChunkId, shard_index: usize, other: &VectorClock) {
+        let mut clocks = self.clocks.write();
+        let clock = clocks
+            .entry((chunk_id, shard_index))
+            .or_insert_with(VectorClock::new);
+        clock.merge(other);
+    }
+
+    /// Perform a quorum write using the provided write function.
+    pub async fn quorum_write<F, Fut>(
+        &self,
+        chunk_id: ChunkId,
+        shard_index: usize,
+        data: &[u8],
+        servers: &[DataServerId],
+        write_fn: F,
+    ) -> Result<QuorumWriteResult>
+    where
+        F: Fn(DataServerId, ChunkId, usize, Vec<u8>, VectorClock) -> Fut + Send + Sync + 'static,
+        Fut: std::future::Future<Output = Result<()>> + Send,
+    {
+        if servers.is_empty() {
+            return Err(StrataError::Internal("No servers available for write".to_string()));
+        }
+
+        let version = self.next_version(chunk_id, shard_index);
+
+        // Update stats
+        {
+            let mut stats = self.stats.write();
+            stats.total_writes += 1;
+        }
+
+        // Wrap write_fn in Arc for sharing across async tasks
+        let write_fn = Arc::new(write_fn);
+        let timeout = self.config.write_timeout;
+
+        // Create write futures for all servers
+        let write_futures: Vec<_> = servers
+            .iter()
+            .map(|&server| {
+                let data = data.to_vec();
+                let version = version.clone();
+                let write_fn = Arc::clone(&write_fn);
+                async move {
+                    let result = tokio::time::timeout(
+                        timeout,
+                        write_fn(server, chunk_id, shard_index, data, version),
+                    )
+                    .await;
+
+                    match result {
+                        Ok(Ok(())) => Ok(server),
+                        Ok(Err(e)) => Err((server, e.to_string())),
+                        Err(_) => Err((server, "Write timeout".to_string())),
+                    }
+                }
+            })
+            .collect();
+
+        // Execute writes concurrently
+        let results = futures::future::join_all(write_futures).await;
+
+        let mut successful = Vec::new();
+        let mut failed = Vec::new();
+
+        for result in results {
+            match result {
+                Ok(server) => successful.push(server),
+                Err((server, error)) => {
+                    failed.push((server, error));
+                    let mut stats = self.stats.write();
+                    stats.replica_failures += 1;
+                }
+            }
+        }
+
+        let quorum_achieved = successful.len() >= self.config.min_writes;
+
+        // Update stats
+        {
+            let mut stats = self.stats.write();
+            if quorum_achieved {
+                stats.quorum_achieved += 1;
+            } else {
+                stats.quorum_failed += 1;
+            }
+        }
+
+        if quorum_achieved {
+            info!(
+                chunk_id = %chunk_id,
+                shard_index,
+                successful = successful.len(),
+                failed = failed.len(),
+                "Quorum write succeeded"
+            );
+        } else {
+            warn!(
+                chunk_id = %chunk_id,
+                shard_index,
+                successful = successful.len(),
+                required = self.config.min_writes,
+                "Quorum write failed - insufficient replicas"
+            );
+        }
+
+        let result = QuorumWriteResult {
+            chunk_id,
+            shard_index,
+            successful_servers: successful,
+            failed_servers: failed,
+            version,
+            quorum_achieved,
+        };
+
+        if !quorum_achieved {
+            return Err(StrataError::Internal(format!(
+                "Quorum not achieved: {} of {} required writes succeeded",
+                result.successful_servers.len(),
+                self.config.min_writes
+            )));
+        }
+
+        Ok(result)
+    }
+
+    /// Get write statistics.
+    pub fn stats(&self) -> QuorumWriteStats {
+        self.stats.read().clone()
+    }
+
+    /// Get the current configuration.
+    pub fn config(&self) -> &QuorumWriteConfig {
+        &self.config
+    }
+}
+
+/// Versioned chunk data for replication.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VersionedChunk {
+    /// The chunk data.
+    pub data: Vec<u8>,
+    /// Vector clock version.
+    pub version: VectorClock,
+    /// Timestamp of the write.
+    pub timestamp: u64,
+    /// Origin node that performed the write.
+    pub origin: DataServerId,
+}
+
+impl VersionedChunk {
+    /// Create a new versioned chunk.
+    pub fn new(data: Vec<u8>, version: VectorClock, origin: DataServerId) -> Self {
+        Self {
+            data,
+            version,
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64,
+            origin,
+        }
+    }
+
+    /// Convert to a VersionedValue.
+    pub fn to_versioned_value(&self) -> VersionedValue<Vec<u8>> {
+        VersionedValue {
+            value: self.data.clone(),
+            clock: self.version.clone(),
+            timestamp: self.timestamp,
+            origin: self.origin,
         }
     }
 }
