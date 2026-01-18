@@ -8,6 +8,8 @@ use crate::raft::{
     RequestVoteRequest, RequestVoteResponse,
     AppendEntriesRequest, AppendEntriesResponse,
     InstallSnapshotRequest, InstallSnapshotResponse,
+    TimeoutNowRequest, TimeoutNowResponse,
+    ReadIndexRequest, ReadIndexResponse,
 };
 use crate::types::NodeId;
 use axum::{
@@ -160,6 +162,48 @@ impl RaftRpc for NetworkRpc {
         request: InstallSnapshotRequest,
     ) -> Result<InstallSnapshotResponse> {
         let url = self.get_peer_url(target, "raft/install_snapshot")
+            .ok_or_else(|| StrataError::NodeNotFound(target))?;
+
+        let response = self.client
+            .post(&url)
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| StrataError::Network(e.to_string()))?;
+
+        response
+            .json()
+            .await
+            .map_err(|e| StrataError::Deserialization(e.to_string()))
+    }
+
+    async fn timeout_now(
+        &self,
+        target: NodeId,
+        request: TimeoutNowRequest,
+    ) -> Result<TimeoutNowResponse> {
+        let url = self.get_peer_url(target, "raft/timeout_now")
+            .ok_or_else(|| StrataError::NodeNotFound(target))?;
+
+        let response = self.client
+            .post(&url)
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| StrataError::Network(e.to_string()))?;
+
+        response
+            .json()
+            .await
+            .map_err(|e| StrataError::Deserialization(e.to_string()))
+    }
+
+    async fn read_index(
+        &self,
+        target: NodeId,
+        request: ReadIndexRequest,
+    ) -> Result<ReadIndexResponse> {
+        let url = self.get_peer_url(target, "raft/read_index")
             .ok_or_else(|| StrataError::NodeNotFound(target))?;
 
         let response = self.client

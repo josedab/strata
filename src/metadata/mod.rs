@@ -9,10 +9,14 @@
 #![deny(clippy::unwrap_used)]
 #![deny(clippy::expect_used)]
 
+mod batching;
 mod operations;
-mod state_machine;
 mod server;
+mod state_machine;
 
+pub use batching::{
+    BatchConfig, BatchStats, BatchableMetadataBackend, InMemoryMetadataBackend, MetadataBatcher,
+};
 pub use operations::{MetadataOp, OpResult};
-pub use state_machine::MetadataStateMachine;
 pub use server::run_metadata_server;
+pub use state_machine::MetadataStateMachine;

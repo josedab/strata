@@ -721,6 +721,9 @@ impl MetadataStateMachine {
         OpResult::Success
     }
 
+    // Allow unwrap here because upload and parts existence are validated above
+    // in the same single-threaded state machine context.
+    #[allow(clippy::unwrap_used)]
     fn complete_multipart_upload(
         &mut self,
         upload_id: String,
