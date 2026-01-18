@@ -4,7 +4,7 @@ use super::rpc::*;
 use super::state::*;
 use super::{LogEntry, RaftLog, RaftStorage, StateMachine};
 use crate::error::{Result, StrataError};
-use crate::types::{LogIndex, NodeId};
+use crate::types::{LogIndex, NodeId, Term};
 use parking_lot::RwLock;
 use rand::Rng;
 use std::collections::HashMap;
@@ -13,7 +13,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::{interval, timeout, Instant};
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 /// Raft configuration.
 #[derive(Debug, Clone)]
@@ -32,6 +32,12 @@ pub struct RaftConfig {
     pub max_entries_per_append: usize,
     /// Snapshot threshold (log entries before snapshot).
     pub snapshot_threshold: usize,
+    /// Snapshot chunk size for streaming (default 1MB).
+    pub snapshot_chunk_size: usize,
+    /// Leadership transfer timeout.
+    pub transfer_leader_timeout: Duration,
+    /// Enable pre-vote protocol to prevent disruptions.
+    pub pre_vote: bool,
 }
 
 impl Default for RaftConfig {
@@ -44,6 +50,9 @@ impl Default for RaftConfig {
             heartbeat_interval: Duration::from_millis(50),
             max_entries_per_append: 100,
             snapshot_threshold: 10000,
+            snapshot_chunk_size: 1024 * 1024, // 1MB
+            transfer_leader_timeout: Duration::from_secs(5),
+            pre_vote: true,
         }
     }
 }
@@ -65,6 +74,36 @@ pub enum RaftCommand {
         request: AppendEntriesRequest,
         response: oneshot::Sender<AppendEntriesResponse>,
     },
+    /// Handle incoming InstallSnapshot RPC.
+    InstallSnapshot {
+        request: InstallSnapshotRequest,
+        response: oneshot::Sender<InstallSnapshotResponse>,
+    },
+    /// Handle incoming TimeoutNow RPC for leader transfer.
+    TimeoutNow {
+        request: TimeoutNowRequest,
+        response: oneshot::Sender<TimeoutNowResponse>,
+    },
+    /// Transfer leadership to another node.
+    TransferLeadership {
+        target_id: NodeId,
+        response: oneshot::Sender<Result<()>>,
+    },
+    /// Add a node to the cluster.
+    AddNode {
+        node_id: NodeId,
+        address: String,
+        response: oneshot::Sender<Result<()>>,
+    },
+    /// Remove a node from the cluster.
+    RemoveNode {
+        node_id: NodeId,
+        response: oneshot::Sender<Result<()>>,
+    },
+    /// Request a linearizable read.
+    ReadIndex {
+        response: oneshot::Sender<Result<LogIndex>>,
+    },
     /// Check if this node is the leader.
     IsLeader {
         response: oneshot::Sender<bool>,
@@ -77,6 +116,28 @@ pub enum RaftCommand {
     Shutdown,
 }
 
+/// State for pending snapshot installation.
+#[derive(Debug)]
+struct PendingSnapshot {
+    /// Accumulated snapshot data.
+    data: Vec<u8>,
+    /// Expected total size.
+    last_included_index: LogIndex,
+    /// Term of the last included entry.
+    last_included_term: Term,
+    /// Next expected offset.
+    next_offset: u64,
+}
+
+/// State for leadership transfer.
+#[derive(Debug)]
+struct LeaderTransferState {
+    /// Target node for leadership transfer.
+    target_id: NodeId,
+    /// When the transfer started.
+    started_at: Instant,
+}
+
 /// The Raft node, managing consensus for a replicated state machine.
 pub struct RaftNode<S: StateMachine> {
     config: RaftConfig,
@@ -86,6 +147,14 @@ pub struct RaftNode<S: StateMachine> {
     state_machine: Arc<RwLock<S>>,
     rpc: Arc<dyn RaftRpc>,
     command_tx: mpsc::Sender<RaftCommand>,
+    /// Pending snapshot being received.
+    pending_snapshot: Arc<RwLock<Option<PendingSnapshot>>>,
+    /// Active leadership transfer.
+    leader_transfer: Arc<RwLock<Option<LeaderTransferState>>>,
+    /// Pending linearizable read requests.
+    pending_reads: Arc<RwLock<Vec<(u64, LogIndex, oneshot::Sender<Result<LogIndex>>)>>>,
+    /// Next read request ID.
+    next_read_id: Arc<std::sync::atomic::AtomicU64>,
 }
 
 impl<S: StateMachine + 'static> RaftNode<S> {
@@ -131,6 +200,10 @@ impl<S: StateMachine + 'static> RaftNode<S> {
             state_machine: Arc::new(RwLock::new(state_machine)),
             rpc,
             command_tx,
+            pending_snapshot: Arc::new(RwLock::new(None)),
+            leader_transfer: Arc::new(RwLock::new(None)),
+            pending_reads: Arc::new(RwLock::new(Vec::new())),
+            next_read_id: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         };
 
         Ok((node, command_rx))
@@ -171,6 +244,34 @@ impl<S: StateMachine + 'static> RaftNode<S> {
                             if result.success {
                                 election_deadline = self.reset_election_deadline();
                             }
+                            let _ = response.send(result);
+                        }
+                        RaftCommand::InstallSnapshot { request, response } => {
+                            let result = self.handle_install_snapshot(request);
+                            // Reset election deadline on valid InstallSnapshot
+                            election_deadline = self.reset_election_deadline();
+                            let _ = response.send(result);
+                        }
+                        RaftCommand::TimeoutNow { request, response } => {
+                            let result = self.handle_timeout_now(request);
+                            let _ = response.send(result);
+                            // Trigger immediate election
+                            election_deadline = Instant::now();
+                        }
+                        RaftCommand::TransferLeadership { target_id, response } => {
+                            let result = self.handle_transfer_leadership(target_id).await;
+                            let _ = response.send(result);
+                        }
+                        RaftCommand::AddNode { node_id, address, response } => {
+                            let result = self.handle_add_node(node_id, address).await;
+                            let _ = response.send(result);
+                        }
+                        RaftCommand::RemoveNode { node_id, response } => {
+                            let result = self.handle_remove_node(node_id).await;
+                            let _ = response.send(result);
+                        }
+                        RaftCommand::ReadIndex { response } => {
+                            let result = self.handle_read_index().await;
                             let _ = response.send(result);
                         }
                         RaftCommand::IsLeader { response } => {
@@ -683,6 +784,437 @@ impl<S: StateMachine + 'static> RaftNode<S> {
             self.config.election_timeout_min..=self.config.election_timeout_max,
         );
         Instant::now() + timeout
+    }
+
+    /// Handle InstallSnapshot RPC for snapshot streaming.
+    fn handle_install_snapshot(&self, request: InstallSnapshotRequest) -> InstallSnapshotResponse {
+        let mut state = self.state.write();
+
+        // Update term if necessary
+        if request.term > state.current_term() {
+            state.become_follower(request.term, Some(request.leader_id));
+            self.persist_state(&state);
+        }
+
+        // Reject if stale term
+        if request.term < state.current_term() {
+            return InstallSnapshotResponse {
+                term: state.current_term(),
+                next_offset: 0,
+                done: false,
+            };
+        }
+
+        // Update leader
+        state.leader_id = Some(request.leader_id);
+
+        let mut pending = self.pending_snapshot.write();
+
+        // Check if this is a new snapshot or continuation
+        if request.offset == 0 {
+            // Start new snapshot
+            *pending = Some(PendingSnapshot {
+                data: Vec::new(),
+                last_included_index: request.last_included_index,
+                last_included_term: request.last_included_term,
+                next_offset: 0,
+            });
+        }
+
+        let snapshot = match pending.as_mut() {
+            Some(s) => s,
+            None => {
+                warn!("Received snapshot chunk without starting snapshot");
+                return InstallSnapshotResponse {
+                    term: state.current_term(),
+                    next_offset: 0,
+                    done: false,
+                };
+            }
+        };
+
+        // Check offset
+        if request.offset != snapshot.next_offset {
+            warn!(
+                expected = snapshot.next_offset,
+                received = request.offset,
+                "Snapshot chunk offset mismatch"
+            );
+            return InstallSnapshotResponse {
+                term: state.current_term(),
+                next_offset: snapshot.next_offset,
+                done: false,
+            };
+        }
+
+        // Append chunk data
+        snapshot.data.extend_from_slice(&request.data);
+        snapshot.next_offset += request.data.len() as u64;
+
+        // Extract values we need before potentially clearing pending
+        let final_next_offset = snapshot.next_offset;
+        let last_included_index = snapshot.last_included_index;
+        let last_included_term = snapshot.last_included_term;
+
+        if request.done {
+            // Snapshot complete - apply it
+            info!(
+                index = last_included_index,
+                term = last_included_term,
+                size = snapshot.data.len(),
+                "Received complete snapshot"
+            );
+
+            // Clone data before we clear pending
+            let snapshot_data = snapshot.data.clone();
+
+            // Save snapshot to storage
+            if let Err(e) = self.storage.save_snapshot(
+                &snapshot_data,
+                last_included_index,
+                last_included_term,
+            ) {
+                error!(error = %e, "Failed to save snapshot");
+                *pending = None;
+                return InstallSnapshotResponse {
+                    term: state.current_term(),
+                    next_offset: 0,
+                    done: false,
+                };
+            }
+
+            // Restore state machine
+            {
+                let mut sm = self.state_machine.write();
+                if let Err(e) = sm.restore(&snapshot_data) {
+                    error!(error = %e, "Failed to restore state machine from snapshot");
+                    *pending = None;
+                    return InstallSnapshotResponse {
+                        term: state.current_term(),
+                        next_offset: 0,
+                        done: false,
+                    };
+                }
+            }
+
+            // Compact log
+            {
+                let mut log = self.log.write();
+                log.compact(last_included_index, last_included_term);
+            }
+
+            // Update state
+            state.volatile.commit_index = last_included_index;
+            state.volatile.last_applied = last_included_index;
+
+            *pending = None;
+
+            return InstallSnapshotResponse {
+                term: state.current_term(),
+                next_offset: final_next_offset,
+                done: true,
+            };
+        }
+
+        InstallSnapshotResponse {
+            term: state.current_term(),
+            next_offset: final_next_offset,
+            done: false,
+        }
+    }
+
+    /// Handle TimeoutNow RPC for leader transfer.
+    fn handle_timeout_now(&self, request: TimeoutNowRequest) -> TimeoutNowResponse {
+        let state = self.state.read();
+
+        // Verify term
+        if request.term < state.current_term() {
+            return TimeoutNowResponse {
+                term: state.current_term(),
+            };
+        }
+
+        info!(
+            node_id = self.config.node_id,
+            from_leader = request.leader_id,
+            "Received TimeoutNow - starting immediate election"
+        );
+
+        TimeoutNowResponse {
+            term: state.current_term(),
+        }
+    }
+
+    /// Handle leadership transfer request.
+    async fn handle_transfer_leadership(&self, target_id: NodeId) -> Result<()> {
+        // Verify we're the leader
+        let is_leader = self.state.read().is_leader();
+        if !is_leader {
+            return Err(StrataError::NotLeader {
+                leader: self.state.read().leader_id,
+            });
+        }
+
+        // Verify target is a known peer
+        if !self.config.peers.contains_key(&target_id) {
+            return Err(StrataError::NodeNotFound(target_id));
+        }
+
+        // Set transfer state
+        {
+            let mut transfer = self.leader_transfer.write();
+            *transfer = Some(LeaderTransferState {
+                target_id,
+                started_at: Instant::now(),
+            });
+        }
+
+        info!(
+            node_id = self.config.node_id,
+            target = target_id,
+            "Initiating leadership transfer"
+        );
+
+        // Ensure target is caught up
+        self.replicate_to_all().await;
+
+        // Check if target is caught up
+        let target_caught_up = {
+            let state = self.state.read();
+            let log = self.log.read();
+            if let Some(leader) = &state.leader {
+                let target_match = leader.match_index.get(&target_id).copied().unwrap_or(0);
+                target_match >= log.last_index()
+            } else {
+                false
+            }
+        };
+
+        if !target_caught_up {
+            // Clear transfer state
+            *self.leader_transfer.write() = None;
+            return Err(StrataError::Internal(
+                "Target node is not caught up".to_string(),
+            ));
+        }
+
+        // Send TimeoutNow to target
+        let term = self.state.read().current_term();
+        let request = TimeoutNowRequest {
+            term,
+            leader_id: self.config.node_id,
+        };
+
+        match timeout(
+            self.config.transfer_leader_timeout,
+            self.rpc.timeout_now(target_id, request),
+        )
+        .await
+        {
+            Ok(Ok(_)) => {
+                info!(
+                    node_id = self.config.node_id,
+                    target = target_id,
+                    "Leadership transfer initiated successfully"
+                );
+                Ok(())
+            }
+            Ok(Err(e)) => {
+                *self.leader_transfer.write() = None;
+                Err(e)
+            }
+            Err(_) => {
+                *self.leader_transfer.write() = None;
+                Err(StrataError::TimeoutStr("Operation timed out".to_string()))
+            }
+        }
+    }
+
+    /// Handle adding a node to the cluster.
+    async fn handle_add_node(&self, node_id: NodeId, address: String) -> Result<()> {
+        // Verify we're the leader
+        let is_leader = self.state.read().is_leader();
+        if !is_leader {
+            return Err(StrataError::NotLeader {
+                leader: self.state.read().leader_id,
+            });
+        }
+
+        // Check if node already exists
+        if self.config.peers.contains_key(&node_id) || node_id == self.config.node_id {
+            return Err(StrataError::AlreadyExists(format!(
+                "Node {} already in cluster",
+                node_id
+            )));
+        }
+
+        // Create membership change entry
+        let change = MembershipChange {
+            change_type: MembershipChangeType::AddNode,
+            node_id,
+            node_addr: Some(address),
+        };
+
+        let data = bincode::serialize(&change)
+            .map_err(|e| StrataError::Serialization(e.to_string()))?;
+
+        // Propose the membership change through normal Raft
+        self.handle_propose(data).await?;
+
+        info!(
+            node_id = self.config.node_id,
+            new_node = node_id,
+            "Proposed adding node to cluster"
+        );
+
+        Ok(())
+    }
+
+    /// Handle removing a node from the cluster.
+    async fn handle_remove_node(&self, node_id: NodeId) -> Result<()> {
+        // Verify we're the leader
+        let is_leader = self.state.read().is_leader();
+        if !is_leader {
+            return Err(StrataError::NotLeader {
+                leader: self.state.read().leader_id,
+            });
+        }
+
+        // Check if node exists
+        if !self.config.peers.contains_key(&node_id) && node_id != self.config.node_id {
+            return Err(StrataError::NodeNotFound(node_id));
+        }
+
+        // Create membership change entry
+        let change = MembershipChange {
+            change_type: MembershipChangeType::RemoveNode,
+            node_id,
+            node_addr: None,
+        };
+
+        let data = bincode::serialize(&change)
+            .map_err(|e| StrataError::Serialization(e.to_string()))?;
+
+        // Propose the membership change through normal Raft
+        self.handle_propose(data).await?;
+
+        info!(
+            node_id = self.config.node_id,
+            removed_node = node_id,
+            "Proposed removing node from cluster"
+        );
+
+        Ok(())
+    }
+
+    /// Handle linearizable read request.
+    async fn handle_read_index(&self) -> Result<LogIndex> {
+        // Verify we're the leader
+        let (is_leader, commit_index) = {
+            let state = self.state.read();
+            (state.is_leader(), state.volatile.commit_index)
+        };
+
+        if !is_leader {
+            return Err(StrataError::NotLeader {
+                leader: self.state.read().leader_id,
+            });
+        }
+
+        // For linearizable reads, we need to confirm leadership
+        // by successfully sending heartbeats to a quorum
+        self.replicate_to_all().await;
+
+        // Check we're still the leader after replication
+        let still_leader = self.state.read().is_leader();
+        if !still_leader {
+            return Err(StrataError::NotLeader {
+                leader: self.state.read().leader_id,
+            });
+        }
+
+        // Return the commit index - client should wait until
+        // last_applied >= commit_index before serving the read
+        Ok(commit_index)
+    }
+
+    /// Send snapshot to a follower that's too far behind.
+    async fn send_snapshot_to_follower(&self, follower_id: NodeId) -> Result<()> {
+        // Load snapshot from storage
+        let (data, last_index, last_term) = match self.storage.load_snapshot()? {
+            Some((data, meta)) => (data, meta.last_index, meta.last_term),
+            None => {
+                return Err(StrataError::Internal("No snapshot available".to_string()));
+            }
+        };
+
+        let term = self.state.read().current_term();
+        let chunk_size = self.config.snapshot_chunk_size;
+        let mut offset = 0u64;
+
+        info!(
+            node_id = self.config.node_id,
+            follower = follower_id,
+            size = data.len(),
+            "Starting snapshot streaming"
+        );
+
+        while offset < data.len() as u64 {
+            let end = ((offset as usize) + chunk_size).min(data.len());
+            let chunk = data[offset as usize..end].to_vec();
+            let done = end >= data.len();
+
+            let request = InstallSnapshotRequest {
+                term,
+                leader_id: self.config.node_id,
+                last_included_index: last_index,
+                last_included_term: last_term,
+                offset,
+                data: chunk,
+                done,
+            };
+
+            match timeout(
+                Duration::from_secs(10),
+                self.rpc.install_snapshot(follower_id, request),
+            )
+            .await
+            {
+                Ok(Ok(response)) => {
+                    if response.term > term {
+                        // We're stale, become follower
+                        let mut state = self.state.write();
+                        state.become_follower(response.term, None);
+                        self.persist_state(&state);
+                        return Err(StrataError::NotLeader { leader: None });
+                    }
+
+                    if response.done {
+                        info!(
+                            node_id = self.config.node_id,
+                            follower = follower_id,
+                            "Snapshot streaming completed"
+                        );
+                        return Ok(());
+                    }
+
+                    offset = response.next_offset;
+                }
+                Ok(Err(e)) => {
+                    error!(
+                        error = %e,
+                        follower = follower_id,
+                        "Failed to send snapshot chunk"
+                    );
+                    return Err(e);
+                }
+                Err(_) => {
+                    return Err(StrataError::TimeoutStr("Operation timed out".to_string()));
+                }
+            }
+        }
+
+        Ok(())
     }
 }
 

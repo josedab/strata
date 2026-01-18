@@ -20,7 +20,9 @@ pub use node::{RaftNode, RaftConfig, RaftCommand};
 pub use rpc::{
     RaftMessage, RaftRpc, RequestVoteRequest, RequestVoteResponse,
     AppendEntriesRequest, AppendEntriesResponse, InstallSnapshotRequest,
-    InstallSnapshotResponse,
+    InstallSnapshotResponse, TransferLeadershipRequest, TransferLeadershipResponse,
+    TimeoutNowRequest, TimeoutNowResponse, MembershipChange, MembershipChangeType,
+    ReadIndexRequest, ReadIndexResponse,
 };
 pub use state::{RaftState, NodeState, PersistentState};
 pub use storage::RaftStorage;
