@@ -2,15 +2,24 @@
 //!
 //! Provides logging, metrics, tracing, and monitoring capabilities.
 
+pub mod alerting;
 pub mod distributed_tracing;
+pub mod histograms;
 
+pub use self::alerting::{
+    AlertConfig, AlertManager, AlertRule, AlertSeverity, AlertState, AlertThreshold,
+};
 pub use self::distributed_tracing::{
     Span, SpanEvent, SpanId, SpanStatus, SpanValue, TraceContext, TraceId, Traceable,
+};
+pub use self::histograms::{
+    record_metadata_latency, record_data_read_latency, record_data_write_latency,
+    record_raft_latency, record_s3_latency, LatencyStats,
 };
 
 use crate::config::ObservabilityConfig;
 use crate::error::{Result, StrataError};
-use metrics::{counter, gauge};
+use metrics::{counter, gauge, histogram};
 use metrics_exporter_prometheus::PrometheusBuilder;
 use tokio::net::TcpListener;
 use ::tracing::info;

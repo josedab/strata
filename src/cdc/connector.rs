@@ -9,6 +9,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
+use tracing::info;
 
 /// Connector type
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

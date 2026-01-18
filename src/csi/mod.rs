@@ -607,6 +607,9 @@ mod hostname {
             use std::os::unix::ffi::OsStringExt;
 
             let mut buf = vec![0u8; 256];
+            // SAFETY: gethostname writes to a valid buffer with size specified,
+            // and we check the return value before using the buffer contents.
+            // The buffer is properly sized (256 bytes) and initialized.
             let result = unsafe { libc::gethostname(buf.as_mut_ptr() as *mut i8, buf.len()) };
             if result != 0 {
                 return Err(std::io::Error::last_os_error());
