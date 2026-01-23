@@ -1,0 +1,52 @@
+name: Question
+description: Ask a question about Strata
+title: "[Question]: "
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Have a question about Strata? We're here to help!
+
+        Before asking, please check:
+        - [Documentation](https://github.com/strata-storage/strata/tree/main/docs)
+        - [Quick Start Guide](https://github.com/strata-storage/strata/blob/main/docs/guides/quickstart.md)
+        - [Existing Q&A issues](https://github.com/strata-storage/strata/issues?q=label%3Aquestion)
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      description: What would you like to know?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: topic
+    attributes:
+      label: Topic
+      options:
+        - Getting Started
+        - Configuration
+        - S3 Compatibility
+        - FUSE / POSIX
+        - Kubernetes Deployment
+        - Performance
+        - Security
+        - Architecture
+        - Contributing
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Any additional context that would help us answer your question
+
+  - type: textarea
+    id: tried
+    attributes:
+      label: What have you tried?
+      description: What documentation or resources have you already consulted?

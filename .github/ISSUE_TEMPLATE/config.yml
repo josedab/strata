@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security Vulnerability
+    url: https://github.com/strata-storage/strata/security/advisories/new
+    about: Report security vulnerabilities privately
+  - name: Discussions
+    url: https://github.com/strata-storage/strata/discussions
+    about: General discussions and community support
