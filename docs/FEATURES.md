@@ -21,7 +21,7 @@ This document provides a comprehensive overview of Strata's features, their impl
 | FUSE Filesystem | 🟢 Implemented | POSIX-compatible filesystem mount |
 | S3 Gateway | 🟢 Implemented | S3-compatible REST API |
 | Native Client | 🟢 Implemented | High-performance gRPC client |
-| NFS Gateway | ⬜ Planned | NFSv4 protocol support |
+| NFS Gateway | 🟢 Implemented | NFSv4.1/4.2 protocol support |
 
 ### Metadata Management
 
@@ -34,9 +34,9 @@ This document provides a comprehensive overview of Strata's features, their impl
 | Extended Attributes | 🟢 Implemented | xattr get/set/list |
 | Symbolic Links | 🟢 Implemented | symlink, readlink |
 | Hard Links | 🟢 Implemented | link, unlink |
-| Snapshot Streaming | ⬜ Planned | Efficient follower catch-up |
-| Membership Changes | ⬜ Planned | Dynamic cluster reconfiguration |
-| Leader Transfer | ⬜ Planned | Zero-downtime maintenance |
+| Snapshot Streaming | 🟢 Implemented | Efficient follower catch-up |
+| Membership Changes | 🟢 Implemented | Dynamic cluster reconfiguration |
+| Leader Transfer | 🟢 Implemented | Zero-downtime maintenance |
 
 ### Data Storage
 
@@ -50,8 +50,8 @@ This document provides a comprehensive overview of Strata's features, their impl
 | Compression (Snappy) | 🟢 Implemented | Alternative compression |
 | Encryption at Rest (AES-256-GCM) | 🟢 Implemented | Block-level encryption |
 | Encryption at Rest (ChaCha20-Poly1305) | 🟢 Implemented | Alternative cipher |
-| Quorum Writes | ⬜ Planned | Configurable write consistency |
-| Read Repair | ⬜ Planned | Automatic replica consistency |
+| Quorum Writes | 🟢 Implemented | Configurable write consistency |
+| Read Repair | 🟢 Implemented | Automatic replica consistency |
 
 ### Cluster Management
 
@@ -61,6 +61,8 @@ This document provides a comprehensive overview of Strata's features, their impl
 | Shard Placement | 🟢 Implemented | Round-robin, rack-aware strategies |
 | Data Recovery | 🟢 Implemented | Automatic chunk recovery |
 | Load Balancing | 🟡 Partial | Basic rebalancing logic |
+| Global Namespace Federation | 🟢 Implemented | Multi-cluster discovery and routing |
+| Smart Tiering (ML Telemetry) | 🟢 Implemented | ML-based tier prediction with telemetry |
 | Graceful Degradation | ⬜ Planned | Cascading failure prevention |
 | Distributed Coordination | ⬜ Planned | Safe concurrent recovery |
 
@@ -85,8 +87,8 @@ This document provides a comprehensive overview of Strata's features, their impl
 | Structured Logging | ✅ Stable | JSON/text log output |
 | Health Checks | ✅ Stable | Liveness and readiness probes |
 | Audit Logging | 🟢 Implemented | SOC2/HIPAA/GDPR compliance |
-| Latency Histograms | ⬜ Planned | p50/p95/p99 percentiles |
-| Alerting Rules | ⬜ Planned | Prometheus alerting definitions |
+| Latency Histograms | 🟢 Implemented | p50/p95/p99 percentiles |
+| Alerting Rules | 🟢 Implemented | Prometheus alerting definitions |
 
 ### Operations
 
@@ -110,8 +112,8 @@ This document provides a comprehensive overview of Strata's features, their impl
 | Configuration File | ✅ Stable | TOML configuration |
 | Environment Variables | 🟢 Implemented | Config override via env |
 | Kubernetes CRDs | 🟡 Partial | Custom resource definitions |
-| Helm Charts | ⬜ Planned | Kubernetes deployment charts |
-| Docker Images | ⬜ Planned | Multi-arch container images |
+| Helm Charts | 🟢 Implemented | Kubernetes deployment charts |
+| Docker Images | 🟢 Implemented | Multi-arch container images |
 | Kubernetes Operator | 🟡 Partial | Automated lifecycle management |
 
 ### Resilience
@@ -150,9 +152,9 @@ The following modules exist as type definitions or minimal implementations. They
 | S3 Compatibility | ❌ | ✅ | ✅ | ✅ |
 | Raft Consensus | ❌ | ❌ | ❌ | ✅ |
 | Erasure Coding | ✅ | ✅ | ✅ | ✅ |
-| Quorum Reads | ✅ | ✅ | ✅ | ⬜ |
-| Snapshot Streaming | ✅ | ✅ | ✅ | ⬜ |
-| Membership Changes | ✅ | ✅ | ✅ | ⬜ |
+| Quorum Reads | ✅ | ✅ | ✅ | 🟢 |
+| Snapshot Streaming | ✅ | ✅ | ✅ | 🟢 |
+| Membership Changes | ✅ | ✅ | ✅ | 🟢 |
 | KMS Integration | ✅ | ✅ | ✅ | ⬜ |
 | Kubernetes Native | ✅ | ✅ | ✅ | 🟡 |
 
@@ -167,7 +169,6 @@ The following modules exist as type definitions or minimal implementations. They
 
 ### Requires Additional Work
 - Multi-region deployment
-- Dynamic cluster membership
 - Zero-downtime upgrades
 - Enterprise security integrations
 - High-availability metadata layer
@@ -186,4 +187,4 @@ The following modules exist as type definitions or minimal implementations. They
 
 ---
 
-*Last updated: 2026-01-17*
+*Last updated: 2026-01-22*

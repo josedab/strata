@@ -1,14 +1,105 @@
 # Quick Start Guide
 
-Get Strata running in minutes.
+Get Strata running in 5 minutes with Docker, or build from source for development.
 
-## Prerequisites
+## Option 1: Docker (Recommended)
+
+### Prerequisites
+
+- Docker 20.10+
+- Docker Compose 2.0+
+
+### Start Strata
+
+```bash
+# Clone the repository
+git clone https://github.com/strata-storage/strata.git
+cd strata
+
+# Start a single node
+docker-compose up -d
+
+# Check status
+docker-compose ps
+```
+
+This starts Strata with:
+- **S3 Gateway**: http://localhost:8080
+- **Metrics**: http://localhost:9100/metrics
+
+### Test with S3
+
+```bash
+# Configure AWS CLI
+export AWS_ACCESS_KEY_ID=strata-access-key
+export AWS_SECRET_ACCESS_KEY=strata-secret-key
+export AWS_DEFAULT_REGION=us-east-1
+
+# Create a bucket
+aws --endpoint-url http://localhost:8080 s3 mb s3://my-bucket
+
+# Upload a file
+echo "Hello, Strata!" > hello.txt
+aws --endpoint-url http://localhost:8080 s3 cp hello.txt s3://my-bucket/
+
+# List bucket contents
+aws --endpoint-url http://localhost:8080 s3 ls s3://my-bucket/
+
+# Download the file
+aws --endpoint-url http://localhost:8080 s3 cp s3://my-bucket/hello.txt downloaded.txt
+cat downloaded.txt
+```
+
+### Start a 3-Node Cluster
+
+For production-like setup with Raft consensus:
+
+```bash
+docker-compose --profile cluster up -d
+```
+
+Cluster endpoints:
+- Node 1: S3 on :8081, metrics on :9101
+- Node 2: S3 on :8082, metrics on :9102
+- Node 3: S3 on :8083, metrics on :9103
+
+```bash
+# Data is replicated across all nodes
+aws --endpoint-url http://localhost:8081 s3 mb s3://cluster-bucket
+aws --endpoint-url http://localhost:8082 s3 ls  # Visible on any node
+```
+
+### Start with Monitoring
+
+```bash
+docker-compose --profile monitoring up -d
+```
+
+Access dashboards:
+- **Grafana**: http://localhost:3000 (admin/strata)
+- **Prometheus**: http://localhost:9093
+
+### Stop Strata
+
+```bash
+# Stop services
+docker-compose down
+
+# Stop and delete all data
+docker-compose down -v
+```
+
+---
+
+## Option 2: Build from Source
+
+### Prerequisites
 
 - Rust 1.70+ (`curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`)
 - Linux or macOS
 - For FUSE: `libfuse3-dev` (Linux) or `macfuse` (macOS)
 
-## Build from Source
+### Build
 
 ```bash
 # Clone the repository
@@ -22,9 +113,7 @@ cargo build --release
 ls target/release/strata*
 ```
 
-## Single Node Setup (Development)
-
-Start a single combined node for development:
+### Start a Single Node
 
 ```bash
 # Create data directories
@@ -43,9 +132,7 @@ The server exposes:
 - **Port 9002**: S3 gateway (HTTP)
 - **Port 9090**: Metrics (Prometheus)
 
-## Access via S3
-
-Use any S3-compatible tool:
+### Access via S3
 
 ```bash
 # List buckets
@@ -64,7 +151,7 @@ aws --endpoint-url http://localhost:9002 s3 cp s3://mybucket/myfile.txt ./downlo
 aws --endpoint-url http://localhost:9002 s3 ls s3://mybucket/
 ```
 
-## Access via FUSE (POSIX)
+### Access via FUSE (POSIX)
 
 Mount as a local filesystem:
 
@@ -87,7 +174,7 @@ fusermount -u /mnt/strata  # Linux
 umount /mnt/strata         # macOS
 ```
 
-## CLI Operations
+### CLI Operations
 
 ```bash
 # Check cluster status
@@ -103,7 +190,9 @@ cargo run -- fs mkdir /mydir
 cargo run -- version
 ```
 
-## Three-Node Cluster
+---
+
+## Three-Node Cluster (Source Build)
 
 For a production-like setup with fault tolerance:
 
@@ -140,7 +229,7 @@ cargo run --release -- server \
     --join 127.0.0.1:9000
 ```
 
-## Verify the Cluster
+### Verify the Cluster
 
 ```bash
 # Check cluster status
@@ -149,18 +238,7 @@ cargo run -- cluster status --metadata-addr 127.0.0.1:9000
 # Should show 3 nodes, one leader
 ```
 
-## Monitor with Metrics
-
-View Prometheus metrics:
-
-```bash
-curl http://localhost:9090/metrics
-```
-
-Key metrics to watch:
-- `strata_cluster_nodes_online` - Number of healthy nodes
-- `strata_raft_is_leader` - Whether this node is the Raft leader
-- `strata_data_bytes_written` - Total bytes written
+---
 
 ## Configuration File
 
@@ -205,8 +283,56 @@ Run with config:
 cargo run --release -- server --config strata.toml
 ```
 
+---
+
+## Monitor with Metrics
+
+View Prometheus metrics:
+
+```bash
+curl http://localhost:9090/metrics
+```
+
+Key metrics to watch:
+- `strata_cluster_nodes_online` - Number of healthy nodes
+- `strata_raft_is_leader` - Whether this node is the Raft leader
+- `strata_data_bytes_written` - Total bytes written
+
+---
+
+## Troubleshooting
+
+### Port Already in Use
+
+```bash
+# Check what's using the port
+lsof -i :8080
+
+# Use different ports (Docker)
+S3_PORT=9080 docker-compose up -d
+```
+
+### Connection Refused
+
+```bash
+# Docker: Check if container is running
+docker-compose ps
+docker-compose logs strata
+
+# Source: Check if server started
+ps aux | grep strata
+```
+
+### Slow Performance
+
+- Docker: Increase memory limits to at least 4GB
+- Source: Use `--release` flag for optimized builds
+
+---
+
 ## Next Steps
 
-- [Deployment Guide](deployment.md) - Production deployment
-- [Operator's Guide](operations.md) - Monitoring and maintenance
+- [Helm Chart for Kubernetes](../../helm/strata/) - Production deployment on Kubernetes
+- [Benchmark Suite](../../benchmarks/) - Performance testing
 - [Architecture Overview](../architecture/overview.md) - System design
+- [Operator's Guide](operations.md) - Monitoring and maintenance
