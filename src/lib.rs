@@ -173,6 +173,9 @@ pub mod fuse;
 #[cfg(feature = "s3")]
 pub mod s3;
 
+/// NFS v4.1/4.2 gateway for network file system access.
+pub mod nfs;
+
 pub mod cli;
 pub mod client;
 pub mod observability;
