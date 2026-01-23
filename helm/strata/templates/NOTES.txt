@@ -1,0 +1,48 @@
+Strata has been deployed!
+
+{{- if .Values.ingress.enabled }}
+
+Access the S3 gateway via ingress:
+{{- range $host := .Values.ingress.hosts }}
+  http{{ if $.Values.ingress.tls }}s{{ end }}://{{ $host.host }}
+{{- end }}
+
+{{- else if contains "NodePort" .Values.service.type }}
+
+Get the S3 gateway URL by running:
+  export NODE_PORT=$(kubectl get --namespace {{ .Release.Namespace }} -o jsonpath="{.spec.ports[0].nodePort}" services {{ include "strata.fullname" . }})
+  export NODE_IP=$(kubectl get nodes --namespace {{ .Release.Namespace }} -o jsonpath="{.items[0].status.addresses[0].address}")
+  echo "S3 Gateway: http://$NODE_IP:$NODE_PORT"
+
+{{- else if contains "LoadBalancer" .Values.service.type }}
+
+Get the S3 gateway URL by running:
+  NOTE: It may take a few minutes for the LoadBalancer IP to be available.
+  kubectl get --namespace {{ .Release.Namespace }} svc {{ include "strata.fullname" . }} -w
+
+{{- else if contains "ClusterIP" .Values.service.type }}
+
+Access the S3 gateway by running:
+  kubectl port-forward --namespace {{ .Release.Namespace }} svc/{{ include "strata.fullname" . }} {{ .Values.service.s3.port }}:{{ .Values.service.s3.port }}
+  echo "S3 Gateway: http://127.0.0.1:{{ .Values.service.s3.port }}"
+
+{{- end }}
+
+Cluster Status:
+  kubectl get pods -l "app.kubernetes.io/name={{ include "strata.name" . }},app.kubernetes.io/instance={{ .Release.Name }}" --namespace {{ .Release.Namespace }}
+
+Metrics (Prometheus):
+  kubectl port-forward --namespace {{ .Release.Namespace }} svc/{{ include "strata.fullname" . }} {{ .Values.service.metrics.port }}:{{ .Values.service.metrics.port }}
+  curl http://127.0.0.1:{{ .Values.service.metrics.port }}/metrics
+
+Useful Commands:
+  # Check cluster health
+  kubectl exec -it {{ include "strata.fullname" . }}-0 --namespace {{ .Release.Namespace }} -- /usr/local/bin/strata health
+
+  # View logs
+  kubectl logs -f {{ include "strata.fullname" . }}-0 --namespace {{ .Release.Namespace }}
+
+  # Scale cluster (must be odd number for Raft)
+  kubectl scale statefulset {{ include "strata.fullname" . }} --replicas=5 --namespace {{ .Release.Namespace }}
+
+Documentation: https://github.com/strata-storage/strata

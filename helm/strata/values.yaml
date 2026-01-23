@@ -1,0 +1,257 @@
+# Default values for Strata Helm chart
+# This is a YAML-formatted file.
+
+# -- Number of Strata replicas (should be odd for Raft consensus: 1, 3, 5)
+replicaCount: 3
+
+image:
+  # -- Container image repository
+  repository: strata/strata
+  # -- Image pull policy
+  pullPolicy: IfNotPresent
+  # -- Overrides the image tag (default is chart appVersion)
+  tag: ""
+
+# -- Image pull secrets for private registries
+imagePullSecrets: []
+
+# -- Override the name of the chart
+nameOverride: ""
+
+# -- Override the full name of the chart
+fullnameOverride: ""
+
+serviceAccount:
+  # -- Create a service account
+  create: true
+  # -- Annotations to add to the service account
+  annotations: {}
+  # -- Name of the service account (auto-generated if not set)
+  name: ""
+
+# -- Pod annotations
+podAnnotations: {}
+
+# -- Pod security context
+podSecurityContext:
+  fsGroup: 1000
+
+# -- Container security context
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+
+# Service configuration
+service:
+  # -- Service type
+  type: ClusterIP
+
+  s3:
+    # -- S3 gateway port
+    port: 8080
+    # -- S3 gateway node port (when service.type is NodePort)
+    nodePort: null
+
+  metadata:
+    # -- Metadata gRPC port
+    port: 9090
+
+  data:
+    # -- Data gRPC port
+    port: 9091
+
+  metrics:
+    # -- Prometheus metrics port
+    port: 9100
+
+# Ingress configuration for S3 gateway
+ingress:
+  # -- Enable ingress
+  enabled: false
+  # -- Ingress class name
+  className: ""
+  # -- Ingress annotations
+  annotations: {}
+    # kubernetes.io/ingress.class: nginx
+    # cert-manager.io/cluster-issuer: letsencrypt-prod
+  hosts:
+    - host: strata.local
+      paths:
+        - path: /
+          pathType: Prefix
+  # -- TLS configuration
+  tls: []
+  #  - secretName: strata-tls
+  #    hosts:
+  #      - strata.local
+
+# Resource limits and requests
+resources:
+  limits:
+    cpu: 2000m
+    memory: 4Gi
+  requests:
+    cpu: 500m
+    memory: 1Gi
+
+# Autoscaling (horizontal pod autoscaler)
+autoscaling:
+  # -- Enable HPA
+  enabled: false
+  # -- Minimum replicas
+  minReplicas: 3
+  # -- Maximum replicas
+  maxReplicas: 9
+  # -- Target CPU utilization percentage
+  targetCPUUtilizationPercentage: 80
+  # -- Target memory utilization percentage
+  targetMemoryUtilizationPercentage: 80
+
+# -- Node selector
+nodeSelector: {}
+
+# -- Tolerations
+tolerations: []
+
+# -- Affinity rules
+affinity: {}
+
+# Pod disruption budget
+podDisruptionBudget:
+  # -- Enable PDB
+  enabled: true
+  # -- Minimum available pods
+  minAvailable: 2
+
+# Persistence configuration
+persistence:
+  data:
+    # -- Enable data persistence
+    enabled: true
+    # -- Storage class (empty = default)
+    storageClass: ""
+    # -- Access mode
+    accessMode: ReadWriteOnce
+    # -- Storage size
+    size: 100Gi
+    # -- Existing PVC to use
+    existingClaim: ""
+
+  metadata:
+    # -- Enable metadata persistence
+    enabled: true
+    # -- Storage class (empty = default)
+    storageClass: ""
+    # -- Access mode
+    accessMode: ReadWriteOnce
+    # -- Storage size
+    size: 10Gi
+    # -- Existing PVC to use
+    existingClaim: ""
+
+# Strata configuration
+strata:
+  # -- Log level (trace, debug, info, warn, error)
+  logLevel: info
+
+  # -- Log format (json, text)
+  logFormat: json
+
+  # Raft consensus configuration
+  raft:
+    # -- Minimum election timeout in milliseconds
+    electionTimeoutMin: 150
+    # -- Maximum election timeout in milliseconds
+    electionTimeoutMax: 300
+    # -- Heartbeat interval in milliseconds
+    heartbeatInterval: 50
+    # -- Snapshot threshold (log entries before snapshot)
+    snapshotThreshold: 10000
+
+  # Erasure coding configuration
+  erasure:
+    # -- Number of data shards
+    dataShards: 4
+    # -- Number of parity shards
+    parityShards: 2
+
+  # S3 gateway configuration
+  s3:
+    # -- Enable S3 gateway
+    enabled: true
+    # -- S3 region
+    region: us-east-1
+    # -- Maximum object size in bytes (5GB default)
+    maxObjectSize: 5368709120
+
+  # Cache configuration
+  cache:
+    # -- Enable caching
+    enabled: true
+    # -- Maximum cache size in bytes (1GB default)
+    maxSize: 1073741824
+    # -- Cache TTL in seconds
+    ttlSeconds: 3600
+
+  # Security configuration
+  security:
+    # -- Enable TLS
+    tlsEnabled: false
+    # -- TLS certificate secret name
+    tlsSecretName: ""
+    # -- Enable authentication
+    authEnabled: false
+    # -- JWT secret (auto-generated if not set)
+    jwtSecret: ""
+
+  # Rate limiting
+  rateLimit:
+    # -- Requests per second
+    requestsPerSecond: 1000
+    # -- Burst size
+    burstSize: 100
+
+# Prometheus ServiceMonitor
+serviceMonitor:
+  # -- Enable ServiceMonitor for Prometheus Operator
+  enabled: false
+  # -- Namespace for ServiceMonitor (defaults to chart namespace)
+  namespace: ""
+  # -- Additional labels for ServiceMonitor
+  additionalLabels: {}
+  # -- Scrape interval
+  interval: 30s
+  # -- Scrape timeout
+  scrapeTimeout: 10s
+
+# Network policies
+networkPolicy:
+  # -- Enable network policies
+  enabled: false
+  # -- Additional ingress rules
+  ingressRules: []
+  # -- Additional egress rules
+  egressRules: []
+
+# Extra environment variables
+extraEnv: []
+#  - name: EXTRA_VAR
+#    value: "value"
+
+# Extra volumes
+extraVolumes: []
+
+# Extra volume mounts
+extraVolumeMounts: []
+
+# Init containers
+initContainers: []
+
+# Sidecar containers
+sidecars: []

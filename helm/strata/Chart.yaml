@@ -1,0 +1,27 @@
+apiVersion: v2
+name: strata
+description: A Helm chart for Strata - Distributed File System with POSIX and S3 compatibility
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+kubeVersion: ">=1.23.0-0"
+
+home: https://github.com/strata-storage/strata
+sources:
+  - https://github.com/strata-storage/strata
+
+maintainers:
+  - name: Strata Contributors
+    url: https://github.com/strata-storage/strata
+
+keywords:
+  - storage
+  - distributed
+  - filesystem
+  - s3
+  - posix
+  - raft
+
+annotations:
+  artifacthub.io/license: MIT
+  artifacthub.io/category: storage

@@ -1,0 +1,60 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "strata.fullname" . }}
+  labels:
+    {{- include "strata.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.s3.port }}
+      targetPort: s3
+      protocol: TCP
+      name: s3
+      {{- if and (eq .Values.service.type "NodePort") .Values.service.s3.nodePort }}
+      nodePort: {{ .Values.service.s3.nodePort }}
+      {{- end }}
+    - port: {{ .Values.service.metadata.port }}
+      targetPort: metadata
+      protocol: TCP
+      name: metadata
+    - port: {{ .Values.service.data.port }}
+      targetPort: data
+      protocol: TCP
+      name: data
+    - port: {{ .Values.service.metrics.port }}
+      targetPort: metrics
+      protocol: TCP
+      name: metrics
+  selector:
+    {{- include "strata.selectorLabels" . | nindent 4 }}
+---
+# Headless service for StatefulSet DNS
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "strata.fullname" . }}-headless
+  labels:
+    {{- include "strata.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+    - port: {{ .Values.service.s3.port }}
+      targetPort: s3
+      protocol: TCP
+      name: s3
+    - port: {{ .Values.service.metadata.port }}
+      targetPort: metadata
+      protocol: TCP
+      name: metadata
+    - port: {{ .Values.service.data.port }}
+      targetPort: data
+      protocol: TCP
+      name: data
+    - port: {{ .Values.service.metrics.port }}
+      targetPort: metrics
+      protocol: TCP
+      name: metrics
+  selector:
+    {{- include "strata.selectorLabels" . | nindent 4 }}
