@@ -1,0 +1,47 @@
+# Build artifacts
+target/
+*.rs.bk
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Git
+.git/
+.gitignore
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# Tests (not needed in production image)
+tests/
+benches/
+
+# Development files
+.env
+.env.local
+*.log
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
+
+# Kubernetes/Helm (separate build)
+helm/
+operator/
+
+# SDKs (separate distribution)
+sdks/
+
+# Terraform (separate distribution)
+terraform/
+
+# Editor configs
+.editorconfig
+.prettierrc

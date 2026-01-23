@@ -1,0 +1,184 @@
+# Strata Distributed File System
+# Docker Compose configuration for local development and testing
+#
+# Usage:
+#   docker-compose up -d              # Start single node
+#   docker-compose --profile cluster up -d  # Start 3-node cluster
+#   docker-compose --profile monitoring up -d  # Start with monitoring
+
+version: '3.8'
+
+services:
+  # ==========================================================================
+  # Single Node Deployment
+  # ==========================================================================
+  strata:
+    build:
+      context: .
+      target: runtime
+    image: strata/strata:latest
+    container_name: strata
+    ports:
+      - "8080:8080"   # S3 Gateway
+      - "9090:9090"   # Metadata gRPC
+      - "9091:9091"   # Data gRPC
+      - "9100:9100"   # Prometheus metrics
+    volumes:
+      - strata-data:/var/lib/strata/data
+      - strata-metadata:/var/lib/strata/metadata
+      - strata-logs:/var/lib/strata/logs
+      - ./docker/config.toml:/etc/strata/config.toml:ro
+    environment:
+      - RUST_LOG=info
+      - STRATA_NODE_ID=1
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/strata", "health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - strata-network
+
+  # ==========================================================================
+  # 3-Node Cluster Configuration (use --profile cluster)
+  # ==========================================================================
+  strata-node1:
+    build:
+      context: .
+      target: runtime
+    image: strata/strata:latest
+    container_name: strata-node1
+    profiles: ["cluster"]
+    ports:
+      - "8081:8080"
+      - "9190:9090"
+      - "9191:9091"
+      - "9101:9100"
+    volumes:
+      - strata-node1-data:/var/lib/strata/data
+      - strata-node1-metadata:/var/lib/strata/metadata
+    environment:
+      - RUST_LOG=info
+      - STRATA_NODE_ID=1
+      - STRATA_RAFT_PEERS=strata-node2:9090,strata-node3:9090
+    networks:
+      - strata-network
+    restart: unless-stopped
+
+  strata-node2:
+    build:
+      context: .
+      target: runtime
+    image: strata/strata:latest
+    container_name: strata-node2
+    profiles: ["cluster"]
+    ports:
+      - "8082:8080"
+      - "9290:9090"
+      - "9291:9091"
+      - "9102:9100"
+    volumes:
+      - strata-node2-data:/var/lib/strata/data
+      - strata-node2-metadata:/var/lib/strata/metadata
+    environment:
+      - RUST_LOG=info
+      - STRATA_NODE_ID=2
+      - STRATA_RAFT_PEERS=strata-node1:9090,strata-node3:9090
+    networks:
+      - strata-network
+    restart: unless-stopped
+
+  strata-node3:
+    build:
+      context: .
+      target: runtime
+    image: strata/strata:latest
+    container_name: strata-node3
+    profiles: ["cluster"]
+    ports:
+      - "8083:8080"
+      - "9390:9090"
+      - "9391:9091"
+      - "9103:9100"
+    volumes:
+      - strata-node3-data:/var/lib/strata/data
+      - strata-node3-metadata:/var/lib/strata/metadata
+    environment:
+      - RUST_LOG=info
+      - STRATA_NODE_ID=3
+      - STRATA_RAFT_PEERS=strata-node1:9090,strata-node2:9090
+    networks:
+      - strata-network
+    restart: unless-stopped
+
+  # ==========================================================================
+  # Monitoring Stack (use --profile monitoring)
+  # ==========================================================================
+  prometheus:
+    image: prom/prometheus:v2.48.0
+    container_name: strata-prometheus
+    profiles: ["monitoring"]
+    ports:
+      - "9093:9090"
+    volumes:
+      - ./docker/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.enable-lifecycle'
+    networks:
+      - strata-network
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:10.2.0
+    container_name: strata-grafana
+    profiles: ["monitoring"]
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./docker/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana-data:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=strata
+      - GF_USERS_ALLOW_SIGN_UP=false
+    networks:
+      - strata-network
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+
+# ==========================================================================
+# Networks
+# ==========================================================================
+networks:
+  strata-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+
+# ==========================================================================
+# Volumes
+# ==========================================================================
+volumes:
+  # Single node volumes
+  strata-data:
+  strata-metadata:
+  strata-logs:
+
+  # Cluster node volumes
+  strata-node1-data:
+  strata-node1-metadata:
+  strata-node2-data:
+  strata-node2-metadata:
+  strata-node3-data:
+  strata-node3-metadata:
+
+  # Monitoring volumes
+  prometheus-data:
+  grafana-data:
